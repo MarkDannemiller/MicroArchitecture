@@ -1,0 +1,7 @@
+Running: xsim.dir/B530_PVA_halt_tb_behav/xsimk.exe -simmode gui -wdb B530_PVA_halt_tb_behav.wdb -simrunnum 0 -socket 4761
+Design successfully loaded
+Design Loading Memory Usage: 5600 KB (Peak: 5600 KB)
+Design Loading CPU Usage: 78 ms
+Simulation completed
+Simulation Memory Usage: 6376 KB (Peak: 6376 KB)
+Simulation CPU Usage: 93 ms

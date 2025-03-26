@@ -1,0 +1,57 @@
+# RISC Project:
+
+32x32 register file
+Use double square bracket syntax and 1k RAM / data memory
+For shift, place last bit into carry
+
+There are two "SH" things on the diagram
+- One is the shifter input
+- One is the buffer from the bits of IR
+
+in general, variables are the same if they are in the same block
+
+unit test the instruction set
+- load up registers, test every instruction
+
+
+Modified Function Unit:
+- Shifter doesn't need A and B, uses SH for one port
+- Pick a port and shift it
+
+Opcode: do whole thing as casex
+- 7 bits
+- assign FS = lower 5 of opcode
+
+
+CS is controlled by "se" or 0|| (zero filled)
+- controls the constant unit
+
+Hazard Detection:
+- Comparators should go true if they match, false otherwise
+
+Invalid OP Code:
+- Throw out x on the bus
+
+Instruction Memory:
+- Hard code it with all the instructions that you need
+   - ~27 instructions plus other conditions
+- Load in NOP between instructions to prevent registers from messing up
+
+BZ/BNZ -> the way to check Z
+SUB vs SLT:
+- Controls whether result of math is saved or if "N^V" is saved
+- Cannot get to N directly, use SLT with 0 which will not trigger V (gets N)
+- Get V by finding N and N^V (backcalc V)
+
+Carry bit is not directly accessible with this architecture
+- No status register
+- Later, you could expand MUXD to access carry on slot 3
+- How to access carry and also get math
+   - Buffer the carry bit on MUXD one cycle, so that you can access it next instruction! Add an instruction that grabs carry of last instruction (MD=3)
+- Doing this might be important for part 2 of the problem
+
+TOP Module
+- Input CLK and RST
+- Testbench will be just to check all the cases
+- For Jumps, make sure to load a valid destination first
+   - JML before JMR or where are you returning to?
