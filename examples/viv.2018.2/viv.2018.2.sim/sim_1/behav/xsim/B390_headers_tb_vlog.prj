@@ -1,0 +1,10 @@
+# compile verilog/system verilog design source files
+verilog xil_defaultlib  -i "../../../../viv.2018.2.srcs/sim_1/new" \
+"../../../../viv.2018.2.srcs/sources_1/new/B320_incs.v" \
+"../../../../viv.2018.2.srcs/sim_1/new/B390_headers_tb.v" \
+
+# compile glbl module
+verilog xil_defaultlib "glbl.v"
+
+# Do not sort compile order
+nosort

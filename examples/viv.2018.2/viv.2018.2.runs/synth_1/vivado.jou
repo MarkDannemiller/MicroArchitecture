@@ -1,0 +1,12 @@
+#-----------------------------------------------------------
+# Vivado v2020.1.1 (64-bit)
+# SW Build 2960000 on Wed Aug  5 22:57:20 MDT 2020
+# IP Build 2956692 on Thu Aug  6 01:41:30 MDT 2020
+# Start of session at: Thu Oct 29 08:14:16 2020
+# Process ID: 23868
+# Current directory: D:/xilinx_projects/viv.2018.2/viv.2018.2.runs/synth_1
+# Command line: vivado.exe -log full_adder1.vds -product Vivado -mode batch -messageDb vivado.pb -notrace -source full_adder1.tcl
+# Log file: D:/xilinx_projects/viv.2018.2/viv.2018.2.runs/synth_1/full_adder1.vds
+# Journal file: D:/xilinx_projects/viv.2018.2/viv.2018.2.runs/synth_1\vivado.jou
+#-----------------------------------------------------------
+source full_adder1.tcl -notrace

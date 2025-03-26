@@ -1,0 +1,12 @@
+#-----------------------------------------------------------
+# Webtalk v2020.1.1 (64-bit)
+# SW Build 2960000 on Wed Aug  5 22:57:20 MDT 2020
+# IP Build 2956692 on Thu Aug  6 01:41:30 MDT 2020
+# Start of session at: Thu Oct 29 08:18:21 2020
+# Process ID: 12980
+# Current directory: D:/xilinx_projects/viv.2018.2/viv.2018.2.sim/sim_1/behav/xsim
+# Command line: wbtcv.exe -mode batch -source D:/xilinx_projects/viv.2018.2/viv.2018.2.sim/sim_1/behav/xsim/xsim.dir/B110_build_from_gates_tb_behav/webtalk/xsim_webtalk.tcl -notrace
+# Log file: D:/xilinx_projects/viv.2018.2/viv.2018.2.sim/sim_1/behav/xsim/webtalk.log
+# Journal file: D:/xilinx_projects/viv.2018.2/viv.2018.2.sim/sim_1/behav/xsim\webtalk.jou
+#-----------------------------------------------------------
+source D:/xilinx_projects/viv.2018.2/viv.2018.2.sim/sim_1/behav/xsim/xsim.dir/B110_build_from_gates_tb_behav/webtalk/xsim_webtalk.tcl -notrace

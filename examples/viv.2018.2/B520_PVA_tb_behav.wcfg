@@ -1,0 +1,56 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<wave_config>
+   <wave_state>
+   </wave_state>
+   <db_ref_list>
+      <db_ref path="B110_build_from_gates_tb_behav.wdb" id="1">
+         <top_modules>
+            <top_module name="B110_build_from_gates_tb" />
+            <top_module name="glbl" />
+         </top_modules>
+      </db_ref>
+   </db_ref_list>
+   <zoom_setting>
+      <ZoomStartTime time="63250fs"></ZoomStartTime>
+      <ZoomEndTime time="232251fs"></ZoomEndTime>
+      <Cursor1Time time="33136fs"></Cursor1Time>
+   </zoom_setting>
+   <column_width_setting>
+      <NameColumnWidth column_width="128"></NameColumnWidth>
+      <ValueColumnWidth column_width="58"></ValueColumnWidth>
+   </column_width_setting>
+   <WVObjectSize size="8" />
+   <wvobject fp_name="/B110_build_from_gates_tb/A0" type="logic">
+      <obj_property name="ElementShortName">A0</obj_property>
+      <obj_property name="ObjectShortName">A0</obj_property>
+   </wvobject>
+   <wvobject fp_name="/B110_build_from_gates_tb/A1" type="logic">
+      <obj_property name="ElementShortName">A1</obj_property>
+      <obj_property name="ObjectShortName">A1</obj_property>
+   </wvobject>
+   <wvobject fp_name="/B110_build_from_gates_tb/Ebar" type="logic">
+      <obj_property name="ElementShortName">Ebar</obj_property>
+      <obj_property name="ObjectShortName">Ebar</obj_property>
+   </wvobject>
+   <wvobject fp_name="/B110_build_from_gates_tb/D0bar" type="logic">
+      <obj_property name="ElementShortName">D0bar</obj_property>
+      <obj_property name="ObjectShortName">D0bar</obj_property>
+   </wvobject>
+   <wvobject fp_name="/B110_build_from_gates_tb/D1bar" type="logic">
+      <obj_property name="ElementShortName">D1bar</obj_property>
+      <obj_property name="ObjectShortName">D1bar</obj_property>
+   </wvobject>
+   <wvobject fp_name="/B110_build_from_gates_tb/D2bar" type="logic">
+      <obj_property name="ElementShortName">D2bar</obj_property>
+      <obj_property name="ObjectShortName">D2bar</obj_property>
+   </wvobject>
+   <wvobject fp_name="/B110_build_from_gates_tb/D3bar" type="logic">
+      <obj_property name="ElementShortName">D3bar</obj_property>
+      <obj_property name="ObjectShortName">D3bar</obj_property>
+   </wvobject>
+   <wvobject fp_name="/B110_build_from_gates_tb/i" type="array">
+      <obj_property name="ElementShortName">i[31:0]</obj_property>
+      <obj_property name="ObjectShortName">i[31:0]</obj_property>
+      <obj_property name="Radix">UNSIGNEDDECRADIX</obj_property>
+   </wvobject>
+</wave_config>
