@@ -19,6 +19,8 @@ module dataMemory(
 
     // Memory array (1024 words, each 32 bits)
     reg [31:0] memory [0:1023];
+    integer i;  // Index for memory array
+
 
     // Combinational read operation
     always @(*) begin
@@ -29,12 +31,17 @@ module dataMemory(
     always @(posedge clk) begin
         if (MW) begin
             memory[addr[9:0]] <= data_in;  // Write data to memory
+            $display("MEMORY DEBUG: STORE addr=%h[%d], data=%h, MW=%b", addr, addr[9:0], data_in, MW);
         end
+    end
+
+    // Add debug display for every memory read
+    always @(addr) begin
+        $display("MEMORY DEBUG: READ addr=%h[%d], data=%h", addr, addr[9:0], memory[addr[9:0]]);
     end
 
     // Initialize memory with test values
     initial begin
-        integer i;
         for (i = 0; i < 1024; i = i + 1)
             memory[i] = 32'h00000000;
     end

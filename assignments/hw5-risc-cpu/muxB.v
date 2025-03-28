@@ -1,23 +1,26 @@
 module muxB(
-    input wire [15:0] B_data,    // Register B data
-    input wire [15:0] constant,  // Constant value
-    input wire MB,               // Mux B select
-    output wire [15:0] out       // Selected output
+    input wire [31:0] B_data,      // Register B data
+    input wire [31:0] constant,    // Immediate constant value
+    input wire MB,                 // Mux B select (0: B_data, 1: constant)
+    output reg [31:0] out          // Mux B output
 );
     /*
-     * Multiplexer B - Pipeline Stage: Execute (EX)
+     * Mux B - Pipeline Stage: Decode and Operand Fetch (DOF)
      * 
-     * This multiplexer selects between:
-     * - Register B data (from ID stage)
-     * - Immediate constant (from constant unit)
-     * 
-     * It operates in the Execute stage to provide the second operand
-     * to the Function Unit. The selection is controlled by the MB signal
-     * from the instruction decoder, allowing immediate operands for
-     * arithmetic and logical operations.
+     * This multiplexer selects the second operand for the ALU:
+     * - If MB = 0, B_data (from register file) is selected
+     * - If MB = 1, constant (from constant unit) is selected
      */
 
-    // Select between B_data and constant based on MB
-    assign out = MB ? constant : B_data;
+    always @(*) begin
+        case (MB)
+            1'b0: out = B_data;
+            1'b1: out = constant;
+            default: out = 32'hx;  // For simulation, mark invalid selections
+        endcase
+        
+        // Debug output
+        $display("MUXB DEBUG: MB=%b, B_data=%h, constant=%h, out=%h", MB, B_data, constant, out);
+    end
 
 endmodule

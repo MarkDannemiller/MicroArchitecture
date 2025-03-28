@@ -12,6 +12,8 @@ module instructionMemory(
      * without any clock delay.
      */
 
+    integer i;  // Index for memory array
+
     // Memory array (1024 instructions, each 32 bits)
     reg [31:0] memory [0:1023];
 
@@ -21,7 +23,6 @@ module instructionMemory(
     // Initialize memory
     initial begin
         // Initialize all memory locations to NOP
-        integer i;
         for (i = 0; i < 1024; i = i + 1)
             memory[i] = 32'h00000000;
     end

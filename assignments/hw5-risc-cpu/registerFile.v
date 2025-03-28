@@ -25,6 +25,8 @@ module registerFile(
 
     // Register array (32 registers, each 32 bits)
     reg [31:0] registers [0:31];
+    integer i;  // Index for register array
+
 
     // Read operations (combinational)
     assign A_data = (A_addr == 5'b00000) ? 32'h00000000 : registers[A_addr];
@@ -34,13 +36,22 @@ module registerFile(
     always @(posedge clk or posedge rst) begin
         if (rst) begin
             // Reset all registers to 0
-            integer i;
-            for (i = 0; i < 32; i = i + 1)
+            for (i = 0; i < 32; i = i + 1) begin
                 registers[i] <= 32'h00000000;
+                $display("REGISTER DEBUG: Reset R%d = 0", i);
+            end
         end else if (D_write && D_addr != 5'b00000) begin
             // Write to register if enabled and not R0
             registers[D_addr] <= D_data;
+            $display("REGISTER DEBUG: Write R%d = %h", D_addr, D_data);
         end
+    end
+
+    // Debug all register values at initialization
+    initial begin
+        $display("REGISTER DEBUG: Initializing all registers to 0");
+        for (i = 0; i < 32; i = i + 1)
+            registers[i] = 32'h00000000;
     end
 
 endmodule

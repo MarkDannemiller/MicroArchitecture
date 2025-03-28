@@ -1,0 +1,150 @@
+$date
+	Thu Mar 27 14:21:40 2025
+$end
+$version
+	Icarus Verilog
+$end
+$timescale
+	1ps
+$end
+$scope module WB_stage_tb $end
+$var wire 1 ! WB_en $end
+$var wire 32 " WB_data [31:0] $end
+$var wire 5 # WB_addr [4:0] $end
+$var reg 32 $ ALU_result [31:0] $end
+$var reg 5 % DR [4:0] $end
+$var reg 2 & MD [1:0] $end
+$var reg 1 ' N_xor_V $end
+$var reg 1 ( RW $end
+$var reg 32 ) mem_data [31:0] $end
+$scope module dut $end
+$var wire 32 * ALU_result [31:0] $end
+$var wire 5 + DR [4:0] $end
+$var wire 2 , MD [1:0] $end
+$var wire 1 ' N_xor_V $end
+$var wire 1 ( RW $end
+$var wire 5 - WB_addr [4:0] $end
+$var wire 1 ! WB_en $end
+$var wire 32 . mem_data [31:0] $end
+$var wire 32 / WB_data [31:0] $end
+$scope module mux_d $end
+$var wire 32 0 ALU_result [31:0] $end
+$var wire 2 1 MD [1:0] $end
+$var wire 1 ' N_xor_V $end
+$var wire 32 2 mem_data [31:0] $end
+$var reg 32 3 out [31:0] $end
+$upscope $end
+$upscope $end
+$scope task test_control_signals $end
+$var reg 5 4 dr_val [4:0] $end
+$var reg 1 5 rw_val $end
+$upscope $end
+$scope task test_md_selection $end
+$var reg 32 6 alu_val [31:0] $end
+$var reg 32 7 expected_data [31:0] $end
+$var reg 2 8 md_val [1:0] $end
+$var reg 32 9 mem_val [31:0] $end
+$var reg 1 : n_xor_v_val $end
+$upscope $end
+$upscope $end
+$enddefinitions $end
+$comment Show the parameter values. $end
+$dumpall
+$end
+#0
+$dumpvars
+x:
+bx 9
+bx 8
+bx 7
+bx 6
+x5
+bx 4
+b0 3
+b0 2
+b0 1
+b0 0
+b0 /
+b0 .
+b0 -
+b0 ,
+b0 +
+b0 *
+b0 )
+0(
+0'
+b0 &
+b0 %
+b0 $
+b0 #
+b0 "
+0!
+$end
+#10000
+b10101010101010101010101010101010 "
+b10101010101010101010101010101010 /
+b10101010101010101010101010101010 3
+b10111011101110111011101110111011 )
+b10111011101110111011101110111011 .
+b10111011101110111011101110111011 2
+b10101010101010101010101010101010 $
+b10101010101010101010101010101010 *
+b10101010101010101010101010101010 0
+b10101010101010101010101010101010 7
+0:
+b10111011101110111011101110111011 9
+b10101010101010101010101010101010 6
+b0 8
+#12000
+b10111011101110111011101110111011 "
+b10111011101110111011101110111011 /
+b10111011101110111011101110111011 3
+b1 &
+b1 ,
+b1 1
+b10111011101110111011101110111011 7
+b1 8
+#14000
+b0 "
+b0 /
+b0 3
+b10 &
+b10 ,
+b10 1
+b0 7
+b10 8
+#16000
+b1 "
+b1 /
+b1 3
+1'
+b1 7
+1:
+#18000
+b0 4
+05
+#20000
+b1010 #
+b1010 -
+b1010 %
+b1010 +
+1!
+1(
+b1010 4
+15
+#22000
+b11111 #
+b11111 -
+b11111 %
+b11111 +
+b11111 4
+#24000
+b1111 #
+b1111 -
+b1111 %
+b1111 +
+0!
+0(
+b1111 4
+05
+#36000

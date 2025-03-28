@@ -1,22 +1,26 @@
 module muxA(
-    input wire [15:0] A_data,    // Register A data
-    input wire [15:0] PC_1,      // PC-1 value
-    input wire MA,               // Mux A select
-    output wire [15:0] out       // Selected output
+    input wire [31:0] A_data,    // Register A data
+    input wire [31:0] PC_1,      // PC+1 value
+    input wire MA,               // Mux A select (0: A_data, 1: PC_1)
+    output reg [31:0] out        // Mux A output
 );
     /*
-     * Multiplexer A - Pipeline Stage: Execute (EX)
+     * Mux A - Pipeline Stage: Decode and Operand Fetch (DOF)
      * 
-     * This multiplexer selects between:
-     * - Register A data (from ID stage)
-     * - PC+1 value (for jump and link instructions)
-     * 
-     * It operates in the Execute stage to provide the first operand
-     * to the Function Unit. The selection is controlled by the MA signal
-     * from the instruction decoder.
+     * This multiplexer selects the first operand for the ALU:
+     * - If MA = 0, A_data (from register file) is selected
+     * - If MA = 1, PC_1 (PC + 1) is selected for JML instructions
      */
 
-    // Select between A_data and PC_1 based on MA
-    assign out = MA ? PC_1 : A_data;
+    always @(*) begin
+        case (MA)
+            1'b0: out = A_data;
+            1'b1: out = PC_1;
+            default: out = 32'hx;  // For simulation, mark invalid selections
+        endcase
+        
+        // Debug output
+        $display("MUXA DEBUG: MA=%b, A_data=%h, PC_1=%h, out=%h", MA, A_data, PC_1, out);
+    end
 
 endmodule
