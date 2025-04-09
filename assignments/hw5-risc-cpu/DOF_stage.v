@@ -1,3 +1,5 @@
+//`include "debug_defs.v"
+
 module DOF_stage(
     input wire clk,                  // System clock signal for synchronizing register reads/writes
     input wire rst,                  // Active-high reset signal to initialize components
@@ -88,9 +90,11 @@ module DOF_stage(
     // Debug output for instruction decoding
     // Shows the breakdown of the current instruction into its component fields
     always @(posedge clk) begin
-        $display("INSTRUCTION DEBUG: IR=%h", IR);
-        $display("INSTRUCTION FIELDS: opcode=%b, DR=%d, SA=%d, SB=%d, IMM=%h", 
-                  opcode, DR, SA, SB, IMM);
+        if(`DEBUG_DOF) begin
+            $display("INSTRUCTION DEBUG: IR=%h", IR);
+            $display("INSTRUCTION FIELDS: opcode=%b, DR=%d, SA=%d, SB=%d, IMM=%h", 
+                    opcode, DR, SA, SB, IMM);
+        end
     end
 
     // Internal control signals not exposed as module outputs
@@ -115,9 +119,11 @@ module DOF_stage(
     // Debug output for register file access
     // Shows register addresses and values being read, and register writes
     always @(posedge clk) begin
-        $display("DOF DEBUG: Register A_addr=%d, B_addr=%d, A_data=%h, B_data=%h", SA, SB, A_data, B_data);
-        if (WB_en)
-            $display("DOF DEBUG: REGISTER WRITE - addr=%d, data=%h", WB_addr, WB_data);
+        if(`DEBUG_DOF) begin
+            $display("DOF DEBUG: Register A_addr=%d, B_addr=%d, A_data=%h, B_data=%h", SA, SB, A_data, B_data);
+            if (WB_en)
+                $display("DOF DEBUG: REGISTER WRITE - addr=%d, data=%h", WB_addr, WB_data);
+        end
     end
 
     // Constant Unit - Handles immediate value extension

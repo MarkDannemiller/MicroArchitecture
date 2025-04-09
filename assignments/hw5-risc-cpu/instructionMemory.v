@@ -25,6 +25,7 @@ module instructionMemory(
         // Initialize all memory locations to NOP
         for (i = 0; i < 1024; i = i + 1)
             memory[i] = 32'h00000000;
+            // Memory is loaded in testbench
     end
 
 endmodule

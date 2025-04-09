@@ -62,7 +62,7 @@ module WB_stage(
     // This helps track the flow of data from the pipeline to the register file
     always @(*) begin
         if (RW)
-            $display("WB DEBUG: Write enabled DR=%d WB_data=%h", DR, WB_data);
+            if (`DEBUG_WB) $display("WB DEBUG: Write enabled DR=%d WB_data=%h", DR, WB_data);
     end
 
 endmodule 

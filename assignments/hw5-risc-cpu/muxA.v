@@ -20,7 +20,9 @@ module muxA(
         endcase
         
         // Debug output
-        $display("MUXA DEBUG: MA=%b, A_data=%h, PC_1=%h, out=%h", MA, A_data, PC_1, out);
+        if(`DEBUG_MUXA) begin
+            $display("MUXA DEBUG: MA=%b, A_data=%h, PC_1=%h, out=%h", MA, A_data, PC_1, out);
+        end
     end
 
 endmodule

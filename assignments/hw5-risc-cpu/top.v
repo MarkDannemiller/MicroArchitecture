@@ -1,3 +1,5 @@
+//`include "debug_defs.v"
+
 module top(
     input wire clk,                  // System clock signal that drives all pipeline stages
     input wire rst                   // Active-high reset signal to initialize all pipeline registers
@@ -299,12 +301,33 @@ module top(
             EX_WB_DR <= DOF_EX_DR;              // Destination register
             
             // Enhanced debug output for tracking register write through pipeline
-            $display("PIPELINE DEBUG: DOF_RW=%b, DOF_EX_RW=%b -> EX_WB_RW=%b", 
-                     DOF_RW, DOF_EX_RW, EX_WB_RW);
-            $display("PIPELINE DEBUG: DR Path: DOF_DR=%d -> DOF_EX_DR=%d -> EX_WB_DR=%d", 
-                     DOF_DR, DOF_EX_DR, DOF_EX_DR);
-            $display("PIPELINE DEBUG: ALU_result=%h for instruction at PC=%h", 
-                     EX_ALU_result, PC_2);
+            if (`DEBUG_PIPE) begin
+                $display("PIPELINE DEBUG: DOF_RW=%b, DOF_EX_RW=%b -> EX_WB_RW=%b", 
+                         DOF_RW, DOF_EX_RW, EX_WB_RW);
+                $display("PIPELINE DEBUG: DR Path: DOF_DR=%d -> DOF_EX_DR=%d -> EX_WB_DR=%d", 
+                         DOF_DR, DOF_EX_DR, DOF_EX_DR);
+                $display("PIPELINE DEBUG: ALU_result=%h for instruction at PC=%h", 
+                         EX_ALU_result, PC_2);
+                $display("PIPELINE DEBUG: WB_data=%h, WB_addr=%d, WB_en=%b", 
+                         WB_data, WB_addr, WB_en);
+            end
+        end
+    end
+
+    // Add debug output for instruction execution
+    always @(posedge clk) begin
+        if (!rst && `DEBUG_PIPE) begin
+            $display("INSTRUCTION DEBUG: PC=%h, Instruction=%h", PC, IF_instruction);
+            $display("INSTRUCTION DEBUG: Opcode=%b, DR=%d, SA=%d, SB=%d", 
+                     IF_instruction[31:25], IF_instruction[24:20], 
+                     IF_instruction[19:15], IF_instruction[14:10]);
+        end
+    end
+
+    // Add debug output for register file updates
+    always @(posedge clk) begin
+        if (!rst && `DEBUG_PIPE && WB_en) begin
+            $display("REGISTER DEBUG: Writing %h to R%d", WB_data, WB_addr);
         end
     end
 

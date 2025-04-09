@@ -1,3 +1,5 @@
+//`include "debug_defs.v"
+
 module functionUnit(
     input wire [31:0] A,     // First operand
     input wire [31:0] B,     // Second operand
@@ -52,50 +54,47 @@ module functionUnit(
         // Default values
         carry_out = 0;
         overflow = 0;
-        
-        // Enhanced debug output
-        $display("ALU OPERATION: FS=%b (%h), A=%h, B=%h", FS, FS, A, B);
+
+        if (`DEBUG_ALU) $display("ALU OPERATION: FS=%b (%h), A=%h, B=%h", FS, FS, A, B);
         
         case (FS)
             FS_MOV, FS_NOP: begin
                 result = A;           // Pass A to output (correct for MOV)
-                $display("ALU DEBUG: MOV/NOP - Output = A = %h", result);
+                if (`DEBUG_ALU) $display("ALU DEBUG: MOV/NOP - Output = A = %h", result);
             end
             FS_JML: begin
                 result = A;           // Pass A to output for jump and link
-                $display("ALU DEBUG: JML - Output = A = %h", result);
+                if (`DEBUG_ALU) $display("ALU DEBUG: JML - Output = A = %h", result);
             end
             FS_ADD: begin
                 {carry_out, result} = {1'b0, A} + {1'b0, B};  // Addition with carry
-                // Check for overflow in signed addition
                 overflow = (A[31] == B[31]) && (result[31] != A[31]);
-                $display("ALU DEBUG: ADD - A(%h) + B(%h) = %h, carry=%b, overflow=%b", A, B, result, carry_out, overflow);
+                if (`DEBUG_ALU) $display("ALU DEBUG: ADD - A(%h) + B(%h) = %h, carry=%b, overflow=%b", A, B, result, carry_out, overflow);
             end
             FS_SUB: begin
                 {carry_out, result} = {1'b0, A} - {1'b0, B};  // Subtraction with borrow
-                // Check for overflow in signed subtraction
-                overflow = (A[31] != B[31]) && (result[31] != A[31]);
-                $display("ALU DEBUG: SUB - A(%h) - B(%h) = %h, carry=%b, overflow=%b", A, B, result, carry_out, overflow);
+                overflow = (A[31] != B[31]) && (result[31] == B[31]);
+                if (`DEBUG_ALU) $display("ALU DEBUG: SUB - A(%h) - B(%h) = %h, carry=%b, overflow=%b", A, B, result, carry_out, overflow);
             end
             FS_AND: begin
                 // Logical AND
                 result = A & B;
-                $display("ALU DEBUG: AND - A(%h) & B(%h) = %h", A, B, result);
+                if (`DEBUG_ALU) $display("ALU DEBUG: AND - A(%h) & B(%h) = %h", A, B, result);
             end
             FS_OR: begin
                 // Logical OR
                 result = A | B;
-                $display("ALU DEBUG: OR - A(%h) | B(%h) = %h", A, B, result);
+                if (`DEBUG_ALU) $display("ALU DEBUG: OR - A(%h) | B(%h) = %h", A, B, result);
             end
             FS_XOR: begin
                 // Logical XOR
                 result = A ^ B;
-                $display("ALU DEBUG: XOR - A(%h) ^ B(%h) = %h", A, B, result);
+                if (`DEBUG_ALU) $display("ALU DEBUG: XOR - A(%h) ^ B(%h) = %h", A, B, result);
             end
             FS_NOT: begin
                 // Logical NOT
                 result = ~A;
-                $display("ALU DEBUG: NOT - ~A(%h) = %h", A, result);
+                if (`DEBUG_ALU) $display("ALU DEBUG: NOT - ~A(%h) = %h", A, result);
             end
             FS_LSL: begin
                 // Logical Shift Left (barrel shifter)
@@ -103,7 +102,7 @@ module functionUnit(
                 // Capture the last bit shifted out for carry
                 if (SH > 0 && SH <= 32)
                     carry_out = (SH == 32) ? A[0] : A[32-SH];
-                $display("ALU DEBUG: LSL - A(%h) << SH(%d) = %h", A, SH, result);
+                if (`DEBUG_ALU) $display("ALU DEBUG: LSL - A(%h) << SH(%d) = %h", A, SH, result);
             end
             FS_LSR: begin
                 // Logical Shift Right (barrel shifter)
@@ -111,14 +110,14 @@ module functionUnit(
                 // Capture the last bit shifted out for carry
                 if (SH > 0 && SH <= 32)
                     carry_out = (SH == 32) ? A[31] : A[SH-1];
-                $display("ALU DEBUG: LSR - A(%h) >> SH(%d) = %h", A, SH, result);
+                if (`DEBUG_ALU) $display("ALU DEBUG: LSR - A(%h) >> SH(%d) = %h", A, SH, result);
             end
             default: begin
                 // Undefined operation - set to x for debugging
                 result = 32'hxxxxxxxx;
                 carry_out = 1'bx;
                 overflow = 1'bx;
-                $display("ALU DEBUG: UNKNOWN OPERATION - FS=%b", FS);
+                if (`DEBUG_ALU) $display("ALU DEBUG: UNKNOWN OPERATION - FS=%b", FS);
             end
         endcase
     end

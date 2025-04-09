@@ -1,3 +1,6 @@
+//`include "debug_defs.v"
+//`include "definitions.v"
+
 module instructionDecoder(
     input wire [6:0] opcode,        // 7-bit Opcode field from instruction
     output reg RW,                  // Register Write
@@ -32,123 +35,272 @@ module instructionDecoder(
      * - For CS (Constant Select), we set it based on whether sign extension is needed
      */
 
-    // Debug info to show opcode interpretation
+    // Decode instruction
     always @(*) begin
-        $display("DECODER DEBUG: opcode=%b [%h], RW=%b, FS=%h, MB=%b, MA=%b, BS=%b", 
-                 opcode, opcode, RW, FS, MB, MA, BS);
-    end
 
-    // Combinational logic for control signal generation
-    always @(*) begin
-        // Special debug for ADD
-        if (opcode == 7'b0000010) begin
-            $display("DECODER DEBUG: Found ADD instruction, setting RW=1, FS=00010");
+        if (`DEBUG_DECODER) begin
+            $display("DECODER DEBUG: opcode=%b [%h], RW=%b, FS=%h, MB=%b, MA=%b, BS=%b",
+                     opcode, opcode, RW, FS, MB, MA, BS);
         end
-        
+
+        // Default values
+        RW = 1'b0;    // No register write
+        MD = 2'b00;   // ALU result
+        MW = 1'b0;    // No memory write
+        BS = 2'b00;   // No branch
+        PS = 1'b0;    // Normal branch condition
+        FS = 5'h0;    // NOP operation
+        MB = 1'b0;    // Select register B
+        MA = 1'b0;    // Select register A
+        CS = 1'b0;    // No sign extension
+
+        // Decode opcode
         case (opcode)
-            7'b0000000: begin // NOP
-                RW = 1'b0; MD = 2'b00; BS = 2'b00; PS = 1'b0; MW = 1'b0;
-                FS = 5'b00000; MB = 1'b0; MA = 1'b0; CS = 1'b0;
+            `OP_NOP: begin    // No operation
+                RW = 1'b0;    // No register write
+                MW = 1'b0;    // No memory write
+                if (`DEBUG_DECODER) $display("DECODER DEBUG: Found NOP instruction");
             end
-            7'b0000010: begin // ADD (was 0000100)
-                RW = 1'b1; MD = 2'b00; BS = 2'b00; PS = 1'b0; MW = 1'b0;
-                FS = 5'b00010; MB = 1'b0; MA = 1'b0; CS = 1'b0;
+            `OP_ADD: begin    // Add: Add two register values
+                RW = 1'b1;    // Write to register
+                MD = 2'b00;   // ALU result
+                BS = 2'b00;   // No branch
+                MW = 1'b0;    // No memory write
+                FS = 5'b00010; // ADD operation
+                MB = 1'b0;    // Select register B
+                MA = 1'b0;    // Select register A
+                if (`DEBUG_DECODER) $display("DECODER DEBUG: Found ADD instruction");
             end
-            7'b0000101: begin // SUB (was 0001010)
-                RW = 1'b1; MD = 2'b00; BS = 2'b00; PS = 1'b0; MW = 1'b0;
-                FS = 5'b00101; MB = 1'b0; MA = 1'b0; CS = 1'b0;
+            `OP_SUB: begin    // Subtract: Subtract two register values
+                RW = 1'b1;    // Write to register
+                MD = 2'b00;   // ALU result
+                BS = 2'b00;   // No branch
+                MW = 1'b0;    // No memory write
+                FS = 5'b00101; // SUB operation
+                MB = 1'b0;    // Select register B
+                MA = 1'b0;    // Select register A
+                if (`DEBUG_DECODER) $display("DECODER DEBUG: Found SUB instruction");
             end
-            7'b1100101: begin // SLT (was 1100110)
-                RW = 1'b1; MD = 2'b10; BS = 2'b00; PS = 1'b0; MW = 1'b0;
-                FS = 5'b00101; MB = 1'b0; MA = 1'b0; CS = 1'b0;
+            `OP_SLT: begin    // Set Less Than: Set destination to 1 if source1 < source2 (signed)
+                RW = 1'b1;    // Write to register
+                MD = 2'b10;   // N⊕V for SLT
+                BS = 2'b00;   // No branch
+                MW = 1'b0;    // No memory write
+                FS = 5'b00101; // SUB operation for comparison
+                MB = 1'b0;    // Select register B
+                MA = 1'b0;    // Select register A
+                if (`DEBUG_DECODER) $display("DECODER DEBUG: Found SLT instruction");
             end
-            7'b0001000: begin // AND (was 0010000)
-                RW = 1'b1; MD = 2'b00; BS = 2'b00; PS = 1'b0; MW = 1'b0;
-                FS = 5'b01000; MB = 1'b0; MA = 1'b0; CS = 1'b0;
+            `OP_AND: begin    // Logical AND: Bitwise AND of two register values
+                RW = 1'b1;    // Write to register
+                MD = 2'b00;   // ALU result
+                BS = 2'b00;   // No branch
+                MW = 1'b0;    // No memory write
+                FS = 5'b01000; // AND operation
+                MB = 1'b0;    // Select register B
+                MA = 1'b0;    // Select register A
+                if (`DEBUG_DECODER) $display("DECODER DEBUG: Found AND instruction");
             end
-            7'b0001010: begin // OR (was 0010100)
-                RW = 1'b1; MD = 2'b00; BS = 2'b00; PS = 1'b0; MW = 1'b0;
-                FS = 5'b01010; MB = 1'b0; MA = 1'b0; CS = 1'b0;
+            `OP_OR: begin     // Logical OR: Bitwise OR of two register values
+                RW = 1'b1;    // Write to register
+                MD = 2'b00;   // ALU result
+                BS = 2'b00;   // No branch
+                MW = 1'b0;    // No memory write
+                FS = 5'b01010; // OR operation
+                MB = 1'b0;    // Select register B
+                MA = 1'b0;    // Select register A
+                if (`DEBUG_DECODER) $display("DECODER DEBUG: Found OR instruction");
             end
-            7'b0001100: begin // XOR (was 0011000)
-                RW = 1'b1; MD = 2'b00; BS = 2'b00; PS = 1'b0; MW = 1'b0;
-                FS = 5'b01100; MB = 1'b0; MA = 1'b0; CS = 1'b0;
+            `OP_XOR: begin    // Logical XOR: Bitwise XOR of two register values
+                RW = 1'b1;    // Write to register
+                MD = 2'b00;   // ALU result
+                BS = 2'b00;   // No branch
+                MW = 1'b0;    // No memory write
+                FS = 5'b01100; // XOR operation
+                MB = 1'b0;    // Select register B
+                MA = 1'b0;    // Select register A
+                if (`DEBUG_DECODER) $display("DECODER DEBUG: Found XOR instruction");
             end
-            7'b0000001: begin // ST (Store) (was 0000010)
-                RW = 1'b0; MD = 2'b00; BS = 2'b00; PS = 1'b0; MW = 1'b1;
-                FS = 5'b00000; MB = 1'b0; MA = 1'b0; CS = 1'b0;
+            `OP_ST: begin     // Store: Store register value to memory
+                RW = 1'b0;    // No register write
+                MD = 2'b00;   // ALU result
+                BS = 2'b00;   // No branch
+                MW = 1'b1;    // Memory write
+                FS = 5'b00000; // NOP operation
+                MB = 1'b0;    // Select register B
+                MA = 1'b0;    // Select register A
+                if (`DEBUG_DECODER) $display("DECODER DEBUG: Found ST instruction");
             end
-            7'b0100001: begin // LD (Load) (was 1000010)
-                RW = 1'b1; MD = 2'b01; BS = 2'b00; PS = 1'b0; MW = 1'b0;
-                FS = 5'b00000; MB = 1'b0; MA = 1'b0; CS = 1'b0;
+            `OP_LD: begin     // Load: Load value from memory to register
+                RW = 1'b1;    // Write to register
+                MD = 2'b01;   // Memory data
+                BS = 2'b00;   // No branch
+                MW = 1'b0;    // No memory write
+                FS = 5'b00000; // NOP operation
+                MA = 1'b0;    // Select register A
+                if (`DEBUG_DECODER) $display("DECODER DEBUG: Found LD instruction");
             end
-            7'b0100010: begin // ADI (Add Immediate) (was 1000100)
-                RW = 1'b1; MD = 2'b00; BS = 2'b00; PS = 1'b0; MW = 1'b0;
-                FS = 5'b00010; MB = 1'b1; MA = 1'b0; CS = 1'b1;
+            `OP_ADI: begin    // Add Immediate: Add register value with immediate value (signed)
+                RW = 1'b1;    // Write to register
+                MD = 2'b00;   // ALU result
+                BS = 2'b00;   // No branch
+                MW = 1'b0;    // No memory write
+                FS = 5'b00010; // ADD operation
+                MB = 1'b1;    // Select immediate
+                MA = 1'b0;    // Select register A
+                CS = 1'b1;    // Sign extend immediate
+                if (`DEBUG_DECODER) $display("DECODER DEBUG: Found ADI instruction");
             end
-            7'b0100101: begin // SBI (Subtract Immediate) (was 1001000)
-                RW = 1'b1; MD = 2'b00; BS = 2'b00; PS = 1'b0; MW = 1'b0;
-                FS = 5'b00101; MB = 1'b1; MA = 1'b0; CS = 1'b1;
+            `OP_SBI: begin    // Subtract Immediate: Subtract immediate value from register (signed)
+                RW = 1'b1;    // Write to register
+                MD = 2'b00;   // ALU result
+                BS = 2'b00;   // No branch
+                MW = 1'b0;    // No memory write
+                FS = 5'b00101; // SUB operation
+                MB = 1'b1;    // Select immediate
+                MA = 1'b0;    // Select register A
+                CS = 1'b1;    // Sign extend immediate
+                if (`DEBUG_DECODER) $display("DECODER DEBUG: Found SBI instruction");
             end
-            7'b0101110: begin // NOT (was 0011110)
-                RW = 1'b1; MD = 2'b00; BS = 2'b00; PS = 1'b0; MW = 1'b0;
-                FS = 5'b01110; MB = 1'b0; MA = 1'b0; CS = 1'b0;
+            `OP_NOT: begin    // Logical NOT: Bitwise complement of register value
+                RW = 1'b1;    // Write to register
+                MD = 2'b00;   // ALU result
+                BS = 2'b00;   // No branch
+                MW = 1'b0;    // No memory write
+                FS = 5'b01110; // NOT operation
+                MA = 1'b0;    // Select register A
+                if (`DEBUG_DECODER) $display("DECODER DEBUG: Found NOT instruction");
             end
-            7'b0101000: begin // ANI (AND Immediate) (was 1010000)
-                RW = 1'b1; MD = 2'b00; BS = 2'b00; PS = 1'b0; MW = 1'b0;
-                FS = 5'b01000; MB = 1'b1; MA = 1'b0; CS = 1'b0;
+            `OP_ANI: begin    // AND Immediate: Bitwise AND of register with immediate value
+                RW = 1'b1;    // Write to register
+                MD = 2'b00;   // ALU result
+                BS = 2'b00;   // No branch
+                MW = 1'b0;    // No memory write
+                FS = 5'b01000; // AND operation
+                MB = 1'b1;    // Select immediate
+                MA = 1'b0;    // Select register A
+                if (`DEBUG_DECODER) $display("DECODER DEBUG: Found ANI instruction");
             end
-            7'b0101010: begin // ORI (OR Immediate) (was 1010100)
-                RW = 1'b1; MD = 2'b00; BS = 2'b00; PS = 1'b0; MW = 1'b0;
-                FS = 5'b01010; MB = 1'b1; MA = 1'b0; CS = 1'b0;
+            `OP_ORI: begin    // OR Immediate: Bitwise OR of register with immediate value
+                RW = 1'b1;    // Write to register
+                MD = 2'b00;   // ALU result
+                BS = 2'b00;   // No branch
+                MW = 1'b0;    // No memory write
+                FS = 5'b01010; // OR operation
+                MB = 1'b1;    // Select immediate
+                MA = 1'b0;    // Select register A
+                if (`DEBUG_DECODER) $display("DECODER DEBUG: Found ORI instruction");
             end
-            7'b0101100: begin // XRI (XOR Immediate) (was 1011000)
-                RW = 1'b1; MD = 2'b00; BS = 2'b00; PS = 1'b0; MW = 1'b0;
-                FS = 5'b01100; MB = 1'b1; MA = 1'b0; CS = 1'b0;
+            `OP_XRI: begin    // XOR Immediate: Bitwise XOR of register with immediate value
+                RW = 1'b1;    // Write to register
+                MD = 2'b00;   // ALU result
+                BS = 2'b00;   // No branch
+                MW = 1'b0;    // No memory write
+                FS = 5'b01100; // XOR operation
+                MB = 1'b1;    // Select immediate
+                MA = 1'b0;    // Select register A
+                if (`DEBUG_DECODER) $display("DECODER DEBUG: Found XRI instruction");
             end
-            7'b1100010: begin // AIU (Add Immediate Unsigned) (was 1100100)
-                RW = 1'b1; MD = 2'b00; BS = 2'b00; PS = 1'b0; MW = 1'b0;
-                FS = 5'b00010; MB = 1'b1; MA = 1'b0; CS = 1'b0;
+            `OP_AIU: begin    // Add Immediate Unsigned: Add register with immediate (unsigned)
+                RW = 1'b1;    // Write to register
+                MD = 2'b00;   // ALU result
+                BS = 2'b00;   // No branch
+                MW = 1'b0;    // No memory write
+                FS = 5'b00010; // ADD operation
+                MB = 1'b1;    // Select immediate
+                MA = 1'b0;    // Select register A
+                if (`DEBUG_DECODER) $display("DECODER DEBUG: Found AIU instruction");
             end
-            7'b1100101: begin // SIU (Subtract Immediate Unsigned) (was 1101000)
-                RW = 1'b1; MD = 2'b00; BS = 2'b00; PS = 1'b0; MW = 1'b0;
-                FS = 5'b00101; MB = 1'b1; MA = 1'b0; CS = 1'b0;
+            `OP_SIU: begin    // Subtract Immediate Unsigned: Subtract immediate from register (unsigned)
+                RW = 1'b1;    // Write to register
+                MD = 2'b00;   // ALU result
+                BS = 2'b00;   // No branch
+                MW = 1'b0;    // No memory write
+                FS = 5'b00101; // SUB operation
+                MB = 1'b1;    // Select immediate
+                MA = 1'b0;    // Select register A
+                if (`DEBUG_DECODER) $display("DECODER DEBUG: Found SIU instruction");
             end
-            7'b1000000: begin // MOV (Move Register)
-                RW = 1'b1; MD = 2'b00; BS = 2'b00; PS = 1'b0; MW = 1'b0;
-                FS = 5'b00000; MB = 1'b0; MA = 1'b0; CS = 1'b0;
+            `OP_MOV: begin    // Move Register: Copy value from source to destination register
+                RW = 1'b1;    // Write to register
+                MD = 2'b00;   // ALU result
+                BS = 2'b00;   // No branch
+                MW = 1'b0;    // No memory write
+                FS = 5'b00000; // MOV operation
+                MA = 1'b0;    // Select register A
+                if (`DEBUG_DECODER) $display("DECODER DEBUG: Found MOV instruction");
             end
-            7'b0110000: begin // LSL (Logical Shift Left)
-                RW = 1'b1; MD = 2'b00; BS = 2'b00; PS = 1'b0; MW = 1'b0;
-                FS = 5'b10100; MB = 1'b0; MA = 1'b0; CS = 1'b0;
+            `OP_LSL: begin    // Logical Shift Left: Shift register value left by immediate amount
+                RW = 1'b1;    // Write to register
+                MD = 2'b00;   // ALU result
+                BS = 2'b00;   // No branch
+                MW = 1'b0;    // No memory write
+                FS = 5'b10100; // LSL operation
+                MA = 1'b0;    // Select register A
+                if (`DEBUG_DECODER) $display("DECODER DEBUG: Found LSL instruction");
             end
-            7'b0110001: begin // LSR (Logical Shift Right) (was 0110010)
-                RW = 1'b1; MD = 2'b00; BS = 2'b00; PS = 1'b0; MW = 1'b0;
-                FS = 5'b11000; MB = 1'b0; MA = 1'b0; CS = 1'b0;
+            `OP_LSR: begin    // Logical Shift Right: Shift register value right by immediate amount
+                RW = 1'b1;    // Write to register
+                MD = 2'b00;   // ALU result
+                BS = 2'b00;   // No branch
+                MW = 1'b0;    // No memory write
+                FS = 5'b11000; // LSR operation
+                MA = 1'b0;    // Select register A
+                if (`DEBUG_DECODER) $display("DECODER DEBUG: Found LSR instruction");
             end
-            7'b1100001: begin // JMR (Jump Register) (was 1110000)
-                RW = 1'b0; MD = 2'b00; BS = 2'b10; PS = 1'b0; MW = 1'b0;
-                FS = 5'b00000; MB = 1'b0; MA = 1'b0; CS = 1'b0;
+            `OP_JMR: begin    // Jump Register: Jump to address in register
+                RW = 1'b0;    // No register write
+                BS = 2'b10;   // Register jump
+                MW = 1'b0;    // No memory write
+                FS = 5'b00000; // NOP operation
+                MA = 1'b0;    // Select register A
+                if (`DEBUG_DECODER) $display("DECODER DEBUG: Found JMR instruction");
             end
-            7'b0100000: begin // BZ (Branch if Zero) (was 1000000)
-                RW = 1'b0; MD = 2'b00; BS = 2'b01; PS = 1'b0; MW = 1'b0;
-                FS = 5'b00000; MB = 1'b1; MA = 1'b0; CS = 1'b1;
+            `OP_BZ: begin     // Branch if Zero: Branch if result is zero
+                RW = 1'b0;    // No register write
+                BS = 2'b01;   // Conditional branch
+                PS = 1'b0;    // Branch if zero
+                MW = 1'b0;    // No memory write
+                FS = 5'b00000; // NOP operation
+                MB = 1'b1;    // Select immediate
+                MA = 1'b0;    // Select register A
+                CS = 1'b1;    // Sign extend immediate
+                if (`DEBUG_DECODER) $display("DECODER DEBUG: Found BZ instruction");
             end
-            7'b1100000: begin // BNZ (Branch if Not Zero)
-                RW = 1'b0; MD = 2'b00; BS = 2'b01; PS = 1'b1; MW = 1'b0;
-                FS = 5'b00000; MB = 1'b1; MA = 1'b0; CS = 1'b1;
+            `OP_BNZ: begin    // Branch if Not Zero: Branch if result is non-zero
+                RW = 1'b0;    // No register write
+                BS = 2'b01;   // Conditional branch
+                PS = 1'b1;    // Branch if not zero
+                MW = 1'b0;    // No memory write
+                FS = 5'b00000; // NOP operation
+                MB = 1'b1;    // Select immediate
+                MA = 1'b0;    // Select register A
+                CS = 1'b1;    // Sign extend immediate
+                if (`DEBUG_DECODER) $display("DECODER DEBUG: Found BNZ instruction");
             end
-            7'b1000100: begin // JMP (Jump Immediate) (was 1001100)
-                RW = 1'b0; MD = 2'b00; BS = 2'b11; PS = 1'b0; MW = 1'b0;
-                FS = 5'b00000; MB = 1'b1; MA = 1'b0; CS = 1'b1;
+            `OP_JMP: begin    // Jump: Jump to immediate address
+                RW = 1'b0;    // No register write
+                BS = 2'b11;   // Direct jump
+                MW = 1'b0;    // No memory write
+                MB = 1'b1;    // Select immediate
+                CS = 1'b1;    // Sign extend immediate
+                if (`DEBUG_DECODER) $display("DECODER DEBUG: Found JMP instruction");
             end
-            7'b0000111: begin // JML (Jump and Link)
-                RW = 1'b1; MD = 2'b00; BS = 2'b11; PS = 1'b0; MW = 1'b0;
-                FS = 5'b00111; MB = 1'b1; MA = 1'b1; CS = 1'b1;
+            `OP_JML: begin    // Jump and Link: Jump to immediate address and save return address
+                RW = 1'b1;    // Write to register
+                MD = 2'b00;   // ALU result
+                BS = 2'b11;   // Direct jump
+                MW = 1'b0;    // No memory write
+                FS = 5'b00111; // JML operation
+                MB = 1'b1;    // Select immediate
+                MA = 1'b1;    // Select PC+1
+                CS = 1'b1;    // Sign extend immediate
+                if (`DEBUG_DECODER) $display("DECODER DEBUG: Found JML instruction");
             end
-            default: begin // Invalid instruction - set all signals to x (error)
+            default: begin    // Invalid instruction - set all signals to x (error)
                 RW = 1'bx; MD = 2'bxx; BS = 2'bxx; PS = 1'bx; MW = 1'bx;
                 FS = 5'bxxxxx; MB = 1'bx; MA = 1'bx; CS = 1'bx;
+                $display("\n\n\n\nDECODER DEBUG: Invalid instruction, setting all signals to x\n\n\n\n");
             end
         endcase
     end

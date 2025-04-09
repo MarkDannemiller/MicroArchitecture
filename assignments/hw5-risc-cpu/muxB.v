@@ -20,7 +20,9 @@ module muxB(
         endcase
         
         // Debug output
-        $display("MUXB DEBUG: MB=%b, B_data=%h, constant=%h, out=%h", MB, B_data, constant, out);
+        if(`DEBUG_MUXB) begin
+            $display("MUXB DEBUG: MB=%b, B_data=%h, constant=%h, out=%h", MB, B_data, constant, out);
+        end
     end
 
 endmodule

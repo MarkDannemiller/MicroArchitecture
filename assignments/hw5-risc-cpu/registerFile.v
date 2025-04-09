@@ -1,3 +1,5 @@
+//`include "debug_defs.v"
+
 module registerFile(
     input wire clk,
     input wire rst,
@@ -32,26 +34,20 @@ module registerFile(
     assign A_data = (A_addr == 5'b00000) ? 32'h00000000 : registers[A_addr];
     assign B_data = (B_addr == 5'b00000) ? 32'h00000000 : registers[B_addr];
 
-    // Write operation (synchronous)
+    // Register write operation
     always @(posedge clk or posedge rst) begin
         if (rst) begin
             // Reset all registers to 0
             for (i = 0; i < 32; i = i + 1) begin
-                registers[i] <= 32'h00000000;
-                $display("REGISTER DEBUG: Reset R%d = 0", i);
+                registers[i] <= 32'h0;
+                if (`DEBUG_REG) $display("REGISTER DEBUG: Reset R%d = 0", i);
             end
-        end else if (D_write && D_addr != 5'b00000) begin
-            // Write to register if enabled and not R0
-            registers[D_addr] <= D_data;
-            $display("REGISTER DEBUG: Write R%d = %h", D_addr, D_data);
+            if (`DEBUG_REG) $display("REGISTER DEBUG: Initializing all registers to 0");
         end
-    end
-
-    // Debug all register values at initialization
-    initial begin
-        $display("REGISTER DEBUG: Initializing all registers to 0");
-        for (i = 0; i < 32; i = i + 1)
-            registers[i] = 32'h00000000;
+        else if (D_write && D_addr != 5'b00000) begin
+            registers[D_addr] <= D_data;
+            if (`DEBUG_REG) $display("REGISTER DEBUG: Write R%d = %h", D_addr, D_data);
+        end
     end
 
 endmodule
