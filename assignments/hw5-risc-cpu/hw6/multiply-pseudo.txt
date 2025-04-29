@@ -1,0 +1,134 @@
+Instructions:
+UGs: create an ASSY language program to MUL two 32-bit numbers to make a 64-bit answer within the Verilog environment to prove out your design of RISC/ASM 5. 
+Check signs first, turn all numbers into non-negatives, use a loop, and fix signs after you have finished the loop.
+The sign convention for MUL is easy, but remember it's a 64-bit 2's complement. The sign convention for DIV is less obvious - use the C convention.
+Test the edge cases as well as the easy stuff. 0 * 0 = 0 is not very convincing proof but an interesting edge case. 0x7fffffff * 0x7fffffff = 0x3fffffff00000001 proves the big crossover.
+Be prepared to present your solutions in class.
+
+Test standard cases and outliers, including the following:
+- maxpos and maxpos
+- maxneg and maxneg
+- maxpos and maxneg
+
+====================================================
+32x32 -> 64-bit Multiplication Algorithm (Shift-and-Add Method)
+====================================================
+
+Input: Two 32-bit numbers (Multiplicand and Multiplier)
+Output: 64-bit product (High:Low)
+
+Algorithm Overview:
+------------------
+This implementation uses the shift-and-add multiplication method, which is a common approach
+for binary multiplication. The algorithm works by:
+1. Making both inputs positive and tracking their signs
+2. Using a 32-bit loop to process each bit of the multiplier
+3. For each bit of the multiplier:
+   - If bit is 1, add the multiplicand to the result
+   - Shift multiplicand left by 1
+   - Shift multiplier right by 1
+4. Finally, adjust the sign of the result if needed
+
+Detailed Pseudocode:
+-------------------
+// Initialize registers
+R1 = 0                    // Low 32 bits of product
+R2 = 0                    // High 32 bits of product
+R3 = Multiplicand         // Will be shifted left
+R4 = Multiplier          // Will be shifted right
+R5 = 0                    // Helper register for carry handling
+R7 = Sign of Multiplicand // 0 for positive, 1 for negative
+R8 = Sign of Multiplier   // 0 for positive, 1 for negative
+R31 = 32                  // Loop counter
+
+// Make multiplicand positive and save sign
+R7 = R3 >> 31            // Extract sign bit
+if (R7 != 0) {           // If negative
+    R3 = NOT R3          // Two's complement
+    R3 = R3 + 1
+}
+
+// Make multiplier positive and save sign
+R8 = R4 >> 31            // Extract sign bit
+if (R8 != 0) {           // If negative
+    R4 = NOT R4          // Two's complement
+    R4 = R4 + 1
+}
+
+// Main multiplication loop
+for (R31 = 32; R31 > 0; R31--) {
+    R9 = R4 & 1          // Test LSB of multiplier
+    
+    if (R9 != 0) {       // If LSB is 1
+        R1 = R1 + R3     // Add multiplicand to low product
+        R5 = R5 + 1      // Handle carry
+        R2 = R2 + R5     // Update high product
+    }
+    
+    R4 = R4 >> 1         // Shift multiplier right
+    R3 = R3 << 1         // Shift multiplicand left
+    R5 = R5 << 1         // Shift helper left
+}
+
+// Adjust final sign if needed
+R10 = R7 ^ R8            // XOR signs to determine if result should be negative
+if (R10 != 0) {          // If signs differed
+    R2 = NOT R2          // Two's complement of high word
+    R2 = R2 + 1
+    R1 = NOT R1          // Two's complement of low word
+    R1 = R1 + 1
+}
+
+CPU Instruction Set Support Analysis:
+-----------------------------------
+The algorithm uses the following instructions:
+1. Basic Arithmetic:
+   - ADD: For adding multiplicand to product
+   - ADI: For incrementing and two's complement
+   - SUB: Not used but available
+   - SBI: For decrementing counter
+
+2. Logical Operations:
+   - AND (ANI): For testing LSB
+   - NOT: For two's complement
+   - XOR: For sign comparison
+   - LSL/LSR: For shifting operations
+
+3. Control Flow:
+   - BZ/BNZ: For conditional branching
+   - JMP: For program flow control
+
+The CPU's instruction set fully supports this algorithm, as it provides:
+- All necessary arithmetic operations
+- Required logical operations
+- Sufficient control flow instructions
+- Register-to-register and immediate operations
+- Shift operations in both directions
+
+Potential Issues:
+----------------
+1. Carry Handling:
+   - The current implementation might have issues with carry propagation
+   - R5 is used for carry but might not handle all cases correctly
+
+2. Sign Handling:
+   - The two's complement operations might need adjustment
+   - Sign extension might be needed in some cases
+
+3. Pipeline Hazards:
+   - The algorithm uses many dependent operations
+   - NOPs are added to handle pipeline hazards
+   - Branch prediction might affect performance
+
+4. Register Usage:
+   - The algorithm uses many registers
+   - Need to ensure no register conflicts
+   - R0 is used as zero register
+
+Recommendations:
+--------------
+1. Verify carry handling logic
+2. Add more detailed sign handling
+3. Consider using a different multiplication algorithm if this one proves problematic
+4. Add more debug points to track register values
+5. Consider implementing a simpler test case first

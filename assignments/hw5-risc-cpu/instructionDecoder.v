@@ -297,10 +297,17 @@ module instructionDecoder(
                 CS = 1'b1;    // Sign extend immediate
                 if (`DEBUG_DECODER) $display("DECODER DEBUG: Found JML instruction");
             end
-            default: begin    // Invalid instruction - set all signals to x (error)
-                RW = 1'bx; MD = 2'bxx; BS = 2'bxx; PS = 1'bx; MW = 1'bx;
-                FS = 5'bxxxxx; MB = 1'bx; MA = 1'bx; CS = 1'bx;
-                $display("\n\n\n\nDECODER DEBUG: Invalid instruction, setting all signals to x\n\n\n\n");
+            default: begin    // Invalid instruction - treat as NOP instead of setting to x
+                RW = 1'b0;    // No register write
+                MD = 2'b00;   // ALU result
+                BS = 2'b00;   // No branch
+                PS = 1'b0;    // Normal branch condition
+                MW = 1'b0;    // No memory write
+                FS = 5'h0;    // NOP operation
+                MB = 1'b0;    // Select register B
+                MA = 1'b0;    // Select register A
+                CS = 1'b0;    // No sign extension
+                $display("\n\n\nDECODER DEBUG: Invalid instruction detected (opcode=%b), treating as NOP\n\n\n", opcode);
             end
         endcase
     end
