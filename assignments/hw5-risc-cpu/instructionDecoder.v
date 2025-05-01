@@ -23,11 +23,11 @@ module instructionDecoder(
      * - 01: Memory data
      * - 10: N⊕V for SLT
      * 
-     * PS is now a single bit as it only has two states:
+     * PS is a single bit as it only has two states:
      * - 0: Normal branch (BZ)
      * - 1: Inverted branch condition (BNZ)
      *
-     * Opcodes are now 7 bits to match the instruction format diagram.
+     * Opcodes are 7 bits to match the instruction format diagram.
      * 
      * For "don't care" (—) signals in the control word table:
      * - We set them to 0 for simplicity unless otherwise required

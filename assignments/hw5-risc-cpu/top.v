@@ -22,7 +22,7 @@ module top(
     // Program Counter Registers - Track instruction execution across pipeline stages
     reg [31:0] PC;      // Current Program Counter for IF stage (points to current instruction)
     reg [31:0] PC_1;    // PC+1 value passed to DOF stage (for jump-and-link instructions)
-    reg [31:0] PC_2;    // PC+2 value passed to EX and WB stages (for branch target calculation)
+    reg [31:0] PC_2;    // PC value passed to EX and WB stages (for branch target calculation)
     
     // IF Stage output signals - Retrieved from Instruction Fetch module
     wire [31:0] IF_PC_next;     // Next PC value calculated by MuxC (based on branch/jump decisions)
@@ -163,7 +163,7 @@ module top(
         .BusA(DOF_EX_BusA),          // First ALU operand from DOF stage
         .BusB(DOF_EX_BusB),          // Second ALU operand from DOF stage
         .extended_imm(DOF_EX_extended_imm), // Extended immediate for memory/branch address
-        .PC_2(PC_2),                 // PC+2 from pipeline register (for branch calculation)
+        .PC_2(PC_2),                 // PC+1 from pipeline register (for branch calculation)
         .SH(DOF_EX_SH),              // Shift amount for barrel shifter operations
         .FS(DOF_EX_FS),              // Function Select code for ALU operation
         .MW(DOF_EX_MW),              // Memory Write control for store operations
@@ -213,8 +213,8 @@ module top(
         if (rst) begin
             // Initialize all PC registers to 0 on reset
             PC <= 32'h0;     // Starting address for program execution
-            PC_1 <= 32'h0;   // Reset PC+1 register
-            PC_2 <= 32'h0;   // Reset PC+2 register
+            PC_1 <= 32'h0;   // Reset IF stage PC+1 register
+            PC_2 <= 32'h0;   // Reset EX stage PC+1 register
         end
         else begin
             // Normal pipeline flow - PC values move through pipeline

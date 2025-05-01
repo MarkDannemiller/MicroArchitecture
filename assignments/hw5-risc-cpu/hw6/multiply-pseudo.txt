@@ -105,30 +105,10 @@ The CPU's instruction set fully supports this algorithm, as it provides:
 - Register-to-register and immediate operations
 - Shift operations in both directions
 
-Potential Issues:
+Rules for Algorithm implementation:
 ----------------
-1. Carry Handling:
-   - The current implementation might have issues with carry propagation
-   - R5 is used for carry but might not handle all cases correctly
-
-2. Sign Handling:
-   - The two's complement operations might need adjustment
-   - Sign extension might be needed in some cases
 
 3. Pipeline Hazards:
    - The algorithm uses many dependent operations
    - NOPs are added to handle pipeline hazards
-   - Branch prediction might affect performance
-
-4. Register Usage:
-   - The algorithm uses many registers
-   - Need to ensure no register conflicts
-   - R0 is used as zero register
-
-Recommendations:
---------------
-1. Verify carry handling logic
-2. Add more detailed sign handling
-3. Consider using a different multiplication algorithm if this one proves problematic
-4. Add more debug points to track register values
-5. Consider implementing a simpler test case first
+   - Due to there not being any safeguards for pipeline hazards, 5 NOP instructions must be added between every real instruction to disable the opportunity for collisions.

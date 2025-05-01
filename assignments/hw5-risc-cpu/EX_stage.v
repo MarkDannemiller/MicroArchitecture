@@ -5,7 +5,7 @@ module EX_stage(
     input wire [31:0] BusA,         // First ALU operand from DOF stage (register A, or PC+1 for jump-and-link)
     input wire [31:0] BusB,         // Second ALU operand from DOF stage (register B or immediate value)
     input wire [31:0] extended_imm, // Sign/zero-extended immediate value from DOF stage (for branch address calculation)
-    input wire [31:0] PC_2,         // PC+2 value from pipeline register in top module (for branch target calculation)
+    input wire [31:0] PC_2,         // PC+1 value from pipeline register in top module (for branch target calculation)
     input wire [4:0] SH,            // Shift amount field for barrel shifter operations (LSL, LSR instructions)
     // Control inputs
     input wire [4:0] FS,            // Function Select code that determines ALU operation
@@ -49,7 +49,7 @@ module EX_stage(
 
     // Branch address calculation - Add PC_2 and extended immediate for branch target
     // For conditional branches (BZ/BNZ), PC-relative addressing is implemented
-    // by adding the sign-extended immediate to PC+2
+    // by adding the sign-extended immediate to PC+1 from IF stage (behind by 2 cycles, IF and DOF)
     assign BrA = PC_2 + extended_imm;
     
     // N XOR V calculation for signed comparison (SLT instruction)
