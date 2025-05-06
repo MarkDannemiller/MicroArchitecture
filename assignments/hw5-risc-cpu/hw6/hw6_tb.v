@@ -80,6 +80,12 @@ module hw6_tb();
     integer stable_count; // For wait_for_completion
     integer stuck_count; // For detecting PC stuck
     reg [31:0] last_pc; // For detecting PC stuck
+
+    // Debug state for pipeline delayed monitoring
+    reg [31:0] debug_state = 0;
+    reg [31:0] prev_debug_pc = 0;
+    reg [31:0] pipeline_delay_counter = 0;
+    reg [3:0] delay_cycles = 0;
     
     // Helper function to correctly pack instruction bits
     // This ensures opcodes and operands are aligned to proper bit positions
@@ -121,24 +127,24 @@ module hw6_tb();
                 pack_instruction = {opcode, rd, rs1, 16'b0};
             end
             
-            // Print verbose debug info for each instruction
-            $display("DEBUG PACK: opcode=%b (%s), rd=%d, rs1=%d, rs2=%d, imm=%h => packed=%h",
-                      opcode, 
-                      (opcode == `OP_NOP) ? "NOP" : 
-                      (opcode == `OP_ADD) ? "ADD" : 
-                      (opcode == `OP_SUB) ? "SUB" : 
-                      (opcode == `OP_MOV) ? "MOV" : 
-                      (opcode == `OP_ADI) ? "ADI" : 
-                      (opcode == `OP_SBI) ? "SBI" : 
-                      (opcode == `OP_LSL) ? "LSL" : 
-                      (opcode == `OP_LSR) ? "LSR" : 
-                      (opcode == `OP_ANI) ? "ANI" : 
-                      (opcode == `OP_BZ) ? "BZ" : 
-                      (opcode == `OP_BNZ) ? "BNZ" : 
-                      (opcode == `OP_JMP) ? "JMP" : 
-                      (opcode == `OP_NOT) ? "NOT" : 
-                      (opcode == `OP_XOR) ? "XOR" : "OTHER",
-                      rd, rs1, rs2, imm, pack_instruction);
+            // // Print verbose debug info for each instruction
+            // $display("DEBUG PACK: opcode=%b (%s), rd=%d, rs1=%d, rs2=%d, imm=%h => packed=%h",
+            //           opcode, 
+            //           (opcode == `OP_NOP) ? "NOP" : 
+            //           (opcode == `OP_ADD) ? "ADD" : 
+            //           (opcode == `OP_SUB) ? "SUB" : 
+            //           (opcode == `OP_MOV) ? "MOV" : 
+            //           (opcode == `OP_ADI) ? "ADI" : 
+            //           (opcode == `OP_SBI) ? "SBI" : 
+            //           (opcode == `OP_LSL) ? "LSL" : 
+            //           (opcode == `OP_LSR) ? "LSR" : 
+            //           (opcode == `OP_ANI) ? "ANI" : 
+            //           (opcode == `OP_BZ) ? "BZ" : 
+            //           (opcode == `OP_BNZ) ? "BNZ" : 
+            //           (opcode == `OP_JMP) ? "JMP" : 
+            //           (opcode == `OP_NOT) ? "NOT" : 
+            //           (opcode == `OP_XOR) ? "XOR" : "OTHER",
+            //           rd, rs1, rs2, imm, pack_instruction);
         end
     endfunction
 
@@ -418,7 +424,8 @@ end
                 @(posedge clk);
                 
                 // Check if PC is stable at the expected final address
-                if (cpu.PC == 280) begin
+                // Jump takes 3 cycles to complete, so we need to check if PC is 280, 281, or 282
+                if (cpu.PC == 280 || cpu.PC == 281 || cpu.PC == 282) begin
                     stable_count = stable_count + 1;
                     stuck_count = 0;  // Reset stuck counter when PC changes
                 end else begin
@@ -433,8 +440,8 @@ end
                         end
                     end else begin
                         stuck_count = 0;  // Reset stuck counter when PC changes
-        end
-    end
+                    end
+                end
                 
                 last_pc = cpu.PC;  // Record current PC for next cycle comparison
             end
@@ -497,8 +504,8 @@ end
         for (j = 0; j < 1024; j = j + 1) begin
             cpu.if_stage.inst_mem.memory[j] = instruction_memory[j];
         end
-
-                // Debug - Display first 200 instruction memory lines to verify loading
+        
+        // Debug - Display first 200 instruction memory lines to verify loading
         $display("\n===== INSTRUCTION MEMORY DUMP (First 280 lines) =====");
         for (j = 0; j < 280; j = j + 1) begin
             $display("Addr %03d: %08h | Opcode: %07b", j, 
@@ -574,7 +581,7 @@ end
         end
         #100;
 
-
+        
 
         // Display test summary
         $display("\n=== Test Summary ===");
@@ -592,9 +599,6 @@ end
         $finish;
     end
 
-    // Monitor register values (for debug)
-    reg [31:0] pipeline_delay_counter = 0;  // Track pipeline stages
-    reg [31:0] debug_state = 0;  // Use state-based debugging to track pipeline operations
     
     always @(posedge clk) begin
         if (!rst) begin
@@ -602,7 +606,7 @@ end
             case (debug_state)
                 // Test setup debugging states
                 0: begin
-                    if (cpu.PC == 0) begin
+                    if (cpu.PC >= 0) begin
                         $display("CRITICAL: [PC=%d] Test case setup started", cpu.PC);
                         debug_state = 1;
                     end
@@ -626,7 +630,7 @@ end
                 
                 3: begin
                     // Watch for jump to multiplication code
-                    if (cpu.PC == 24) begin
+                    if (cpu.PC >= 24) begin
                         $display("CRITICAL: [PC=%d] Jumping to multiplication algorithm", cpu.PC);
                         debug_state = 10;
                     end
@@ -634,7 +638,7 @@ end
                 
                 10: begin
                     // First instruction of multiplication code
-                    if (cpu.PC == 100) begin
+                    if (cpu.PC >= 100) begin
                         $display("\nCRITICAL: [PC=%d] MULTIPLICATION STARTED", cpu.PC);
                         $display("  Initial inputs: R1=%h, R2=%h", R1_debug, R2_debug);
                         $display("  Expected for TC1 (0*0): R1=0, R2=0");
@@ -672,6 +676,12 @@ end
                     // Wait for sign extraction of multiplicand
                     if (cpu.PC >= 130) begin
                         $display("CRITICAL: Sign extracted from multiplicand, R7=%h", R7_debug);
+                        // Check if branch taken or not
+                        repeat(3) @(posedge clk);  // Wait 3 clock cycles
+                        if (cpu.PC >= 136 && cpu.PC <= 142) 
+                            $display("CRITICAL: BZ at PC=130 NOT TAKEN (R7!=0, multiplicand is negative)");
+                        else
+                            $display("CRITICAL: BZ at PC=130 TAKEN (R7=0, multiplicand is positive)");
                         debug_state = 15;
                     end
                 end
@@ -680,6 +690,12 @@ end
                     // Wait for sign extraction of multiplier
                     if (cpu.PC >= 154) begin
                         $display("CRITICAL: Sign extracted from multiplier, R8=%h", R8_debug);
+                        // Check if branch taken or not
+                        repeat(3) @(posedge clk);  // Wait 3 clock cycles
+                        if (cpu.PC >= 160 && cpu.PC <= 166) 
+                            $display("CRITICAL: BZ at PC=154 NOT TAKEN (R8!=0, multiplier is negative)");
+                        else
+                            $display("CRITICAL: BZ at PC=154 TAKEN (R8=0, multiplier is positive)");
                         debug_state = 16;
                     end
                 end
@@ -695,7 +711,7 @@ end
                 // ---- Multiplication loop tracking ----
                 20: begin
                     // Beginning of multiplication loop
-                    if (cpu.PC == 184) begin
+                    if (cpu.PC >= 184) begin
                         $display("\nCRITICAL: LOOP ITERATION - Counter=%d", R31_debug);
                         $display("  LSB check: R9=%h (multiplier R4=%h)", R9_debug, R4_debug);
                         debug_state = 21;
@@ -705,10 +721,14 @@ end
                 21: begin
                     // After LSB check
                     if (cpu.PC > 190 && cpu.PC < 196) begin
+                        // Wait 3 cycles for pipeline effect on R9
+                        repeat(3) @(posedge clk);  // Wait 3 clock cycles
                         if (R9_debug == 0) begin
                             $display("  LSB is 0, skipping addition");
-        end else begin
+                            $display("  BZ at PC=190 TAKEN (R9=0, skipping addition)");
+                        end else begin
                             $display("  LSB is 1, will add multiplicand to product");
+                            $display("  BZ at PC=190 NOT TAKEN (R9!=0, performing addition)");
                         end
                         debug_state = 22;
                     end
@@ -734,11 +754,16 @@ end
                 24: begin
                     // After loop branch check
                     if (cpu.PC > 238) begin
+                        // Wait 3 cycles for pipeline effect on R31
+                        repeat(3) @(posedge clk);  // Wait 3 clock cycles
                         // If we're still in the loop
                         if (R31_debug > 0) begin
+                            $display("  BNZ at PC=238 TAKEN (R31=%d, looping back)", R31_debug);
+                            $display("  Loop offset = -55 (Target=184, PC=238, Offset=184-(238+1)=-55)");
                             debug_state = 20; // Go back to loop start
                             $display("  Loop continues, iterations left: %d", R31_debug);
-        end else begin
+                        end else begin
+                            $display("  BNZ at PC=238 NOT TAKEN (R31=0, exiting loop)");
                             debug_state = 30; // Move to sign adjustment
                             $display("\nCRITICAL: MULTIPLICATION LOOP COMPLETE");
                         end
@@ -750,10 +775,14 @@ end
                     // Wait for sign adjustment check
                     if (cpu.PC >= 250) begin
                         $display("CRITICAL: Sign check result R10=%h", R10_debug);
+                        // Wait 3 cycles for pipeline effect
+                        repeat(3) @(posedge clk);  // Wait 3 clock cycles
                         if (R10_debug != 0) begin
                             $display("  Signs differed, need to negate result");
-        end else begin
+                            $display("  BZ at PC=250 NOT TAKEN (R10!=0, signs differed)");
+                        end else begin
                             $display("  Signs matched, no negation needed");
+                            $display("  BZ at PC=250 TAKEN (R10=0, signs matched)");
                         end
                         debug_state = 31;
                     end
@@ -787,7 +816,7 @@ end
                                 $display("  Expected: 0x00000000:00000001");
                                 if (R1_debug == 32'h1 && R2_debug == 32'h0) begin
                                     $display("  Actual: 0x%h:%h - CORRECT", R2_debug, R1_debug);
-        end else begin
+                                end else begin
                                     $display("  Actual: 0x%h:%h - ERROR", R2_debug, R1_debug);
                                 end
                             end
