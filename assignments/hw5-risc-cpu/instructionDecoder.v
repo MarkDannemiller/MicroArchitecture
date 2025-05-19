@@ -1,5 +1,5 @@
-//`include "debug_defs.v"
-//`include "definitions.v"
+`include "../debug_defs.v"
+`include "../definitions.v"
 
 module instructionDecoder(
     input wire [6:0] opcode,        // 7-bit Opcode field from instruction

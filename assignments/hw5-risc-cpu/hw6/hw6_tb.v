@@ -20,6 +20,25 @@
 `include "../muxD.v"
 
 module hw6_tb();
+    // PC constants for multiplication program
+    localparam PC_CORE = 200;           // Start of multiplication program
+    localparam PC_LOADER_DONE = PC_CORE;   // End of loader
+    localparam PC_START = PC_CORE;      // Initial setup
+    localparam PC_INIT_R1 = PC_CORE + 10; // Initialize R1
+    localparam PC_INIT_R2 = PC_CORE + 15; // Initialize R2
+    localparam PC_ABS_A_SIGN = PC_CORE + 20; // Get sign of A
+    localparam PC_ABS_A_BZ = PC_CORE + 30;   // Branch for A sign
+    localparam PC_ABS_B_SIGN = PC_CORE + 50; // Get sign of B
+    localparam PC_ABS_B_BZ = PC_CORE + 60;   // Branch for B sign
+    localparam PC_COUNTER_SET = PC_CORE + 85; // Set up counter
+    localparam PC_LOOP_HEAD = PC_CORE + 90;   // Start of main loop
+    localparam PC_LSB_BZ = PC_CORE + 95;      // Branch on LSB
+    localparam PC_LOOP_TAIL = PC_CORE + 135;  // End of loop iteration
+    localparam PC_LOOP_BRANCH = PC_CORE + 150; // Loop back branch
+    localparam PC_SIGN_XOR = PC_CORE + 155;    // XOR signs
+    localparam PC_SIGN_BZ = PC_CORE + 160;     // Branch on sign
+    localparam PC_HALT = PC_CORE + 182;        // Program halt
+
     reg clk;
     reg rst;
     wire [31:0] R1_debug = cpu.dof_stage.reg_file.registers[1]; // Example direct access
@@ -87,66 +106,109 @@ module hw6_tb();
     reg [31:0] pipeline_delay_counter = 0;
     reg [3:0] delay_cycles = 0;
     
-    // Helper function to correctly pack instruction bits
-    // This ensures opcodes and operands are aligned to proper bit positions
-    function [31:0] pack_instruction(
-        input [6:0] opcode,
-        input [4:0] rd,
-        input [4:0] rs1,
-        input [4:0] rs2,
-        input [15:0] imm
-    );
-        begin
-            // Default to R-type format
-            pack_instruction = {opcode, rd, rs1, rs2, imm[9:0]};
-            
-            // I-type instructions: opcode[6:0], rd[4:0], rs1[4:0], imm[15:0]
-            if (opcode == `OP_ADI || opcode == `OP_SBI || opcode == `OP_ANI || 
-                opcode == `OP_ORI || opcode == `OP_XRI || opcode == `OP_AIU || 
-                opcode == `OP_SIU || opcode == `OP_LSL || opcode == `OP_LSR) begin
-                pack_instruction = {opcode, rd, rs1, imm[14:0]};
-            end
-            
-            // Branch instructions: opcode[6:0], rd[4:0], rs1[4:0], imm[15:0]
-            else if (opcode == `OP_BZ || opcode == `OP_BNZ) begin
-                pack_instruction = {opcode, rd, rs1, imm[14:0]};
-            end
-            
-            // Jump instructions: opcode[6:0], rd[4:0], rs1[4:0], imm[15:0]
-            else if (opcode == `OP_JMP || opcode == `OP_JML) begin
-                pack_instruction = {opcode, rd, rs1, imm[14:0]};
-            end
-            
-            // MOV instruction: opcode[6:0], rd[4:0], rs1[4:0], 16'b0
-            else if (opcode == `OP_MOV) begin
-                pack_instruction = {opcode, rd, rs1, 16'b0};
-            end
-            
-            // NOT instruction: opcode[6:0], rd[4:0], rs1[4:0], 16'b0
-            else if (opcode == `OP_NOT) begin
-                pack_instruction = {opcode, rd, rs1, 16'b0};
-            end
-            
-            // // Print verbose debug info for each instruction
-            // $display("DEBUG PACK: opcode=%b (%s), rd=%d, rs1=%d, rs2=%d, imm=%h => packed=%h",
-            //           opcode, 
-            //           (opcode == `OP_NOP) ? "NOP" : 
-            //           (opcode == `OP_ADD) ? "ADD" : 
-            //           (opcode == `OP_SUB) ? "SUB" : 
-            //           (opcode == `OP_MOV) ? "MOV" : 
-            //           (opcode == `OP_ADI) ? "ADI" : 
-            //           (opcode == `OP_SBI) ? "SBI" : 
-            //           (opcode == `OP_LSL) ? "LSL" : 
-            //           (opcode == `OP_LSR) ? "LSR" : 
-            //           (opcode == `OP_ANI) ? "ANI" : 
-            //           (opcode == `OP_BZ) ? "BZ" : 
-            //           (opcode == `OP_BNZ) ? "BNZ" : 
-            //           (opcode == `OP_JMP) ? "JMP" : 
-            //           (opcode == `OP_NOT) ? "NOT" : 
-            //           (opcode == `OP_XOR) ? "XOR" : "OTHER",
-            //           rd, rs1, rs2, imm, pack_instruction);
+    // -----------------------------------------------------------------------------
+    //  pack_instruction  –  emit a 32-bit instruction word
+    //                       (matches fields expected by instructionDecoder)
+    // -----------------------------------------------------------------------------
+    function [31:0] pack_instruction;
+        input [6:0]  opcode;
+        input [4:0]  rd;
+        input [4:0]  rs1;
+        input [4:0]  rs2;       // ignored for the I-type formats
+        input [14:0] imm;       // 15-bit signed immediate
+        reg   [31:0] word;
+    begin
+        // ─────────────────────────────────────────────────────────────────────────
+        // Default: **R-type**  –  opcode | rd | rs1 | rs2 | 10×pad
+        // ─────────────────────────────────────────────────────────────────────────
+        word = {opcode, rd, rs1, rs2, 10'b0};
+
+        // ─────────────────────────────────────────────────────────────────────────
+        // I-type  (immediate arithmetic / logic / shifts)
+        // Branch  (BZ / BNZ)
+        // Jump    (JMP / JML)
+        // All use: opcode | rd | rs1 | imm[14:0]
+        // ─────────────────────────────────────────────────────────────────────────
+        if ( opcode == `OP_ADI  || opcode == `OP_SBI  || opcode == `OP_ANI ||
+             opcode == `OP_ORI  || opcode == `OP_XRI  || opcode == `OP_AIU ||
+             opcode == `OP_SIU  || opcode == `OP_LSL  || opcode == `OP_LSR ||
+             opcode == `OP_BZ   || opcode == `OP_BNZ  ||
+             opcode == `OP_JMP  || opcode == `OP_JML ) begin
+            word = {opcode, rd, rs1, imm[14:0]};
         end
+
+        // Done
+        pack_instruction = word;
+    end
     endfunction
+
+    // Helper task to add NOPs
+    task add_nops(
+        output integer idx,
+        input integer count
+    );
+    begin
+        for (integer k = 0; k < count; k = k + 1) begin
+            instruction_memory[idx++] = pack_instruction(`OP_NOP, 5'b0, 5'b0, 5'b0, 15'b0);
+        end
+    end
+    endtask
+
+    reg [4:0] scratch_reg;
+    // Helper task to load a 32-bit value into a register
+    // Uses a fixed pattern to ensure consistent instruction count for all values
+    task load32 (
+        output integer idx,
+        input  [4:0]  rd,
+        input  [31:0] value
+    );
+    begin
+        // Pick R13 as our scratch register for patching (should be unused by test code)
+        scratch_reg = 5'd13;
+        
+        // Load bits 0-14 (low 15 bits)
+        instruction_memory[idx++] = pack_instruction(`OP_ADI, rd, `R0, 5'd0, value[14:0]);
+        add_nops(idx, 4);
+        
+        // Always handle bit 15 for consistent instruction count
+        // Create mask 0x8000 in scratch register
+        instruction_memory[idx++] = pack_instruction(`OP_ADI, scratch_reg, `R0, 5'd0, 15'd1);
+        add_nops(idx, 4);
+        instruction_memory[idx++] = pack_instruction(`OP_LSL, scratch_reg, scratch_reg, 5'd0, 15'd15);
+        add_nops(idx, 4);
+
+        // Conditionally OR mask with our value if bit 15 is set, otherwise set to 0
+        if (value[15]) begin
+            instruction_memory[idx++] = pack_instruction(`OP_OR, rd, rd, scratch_reg, 5'd0);
+        end else begin
+            instruction_memory[idx++] = pack_instruction(`OP_ADI, rd, rd, 5'd0, 15'd0); // NOP effect but same cycle count
+        end
+        add_nops(idx, 4);
+        
+        // Shift left by 16 to make room for high bits
+        instruction_memory[idx++] = pack_instruction(`OP_LSL, rd, rd, 5'd0, 15'd16);
+        add_nops(idx, 4);
+        
+        // OR in bits 16-30 (high 15 bits, excluding bit 31)
+        instruction_memory[idx++] = pack_instruction(`OP_ORI, rd, rd, 5'd0, value[30:16]);
+        add_nops(idx, 4);
+        
+        // Always handle bit 31 for consistent instruction count
+        // Create mask 0x80000000 in scratch register
+        instruction_memory[idx++] = pack_instruction(`OP_ADI, scratch_reg, `R0, 5'd0, 15'd1);
+        add_nops(idx, 4);
+        instruction_memory[idx++] = pack_instruction(`OP_LSL, scratch_reg, scratch_reg, 5'd0, 15'd31);
+        add_nops(idx, 4);
+
+        // Conditionally OR mask with our value if bit 31 is set, otherwise set to 0
+        if (value[31]) begin
+            instruction_memory[idx++] = pack_instruction(`OP_OR, rd, rd, scratch_reg, 5'd0);
+        end else begin
+            instruction_memory[idx++] = pack_instruction(`OP_ADI, rd, rd, 5'd0, 15'd0); // NOP effect but same cycle count
+        end
+        add_nops(idx, 4);
+    end
+    endtask
 
     // Instantiate the CPU
     top cpu(
@@ -174,246 +236,296 @@ module hw6_tb();
         total_tests = 8;  // Total number of test cases
             
         // Initialize the initial block of instructions as NOP (leave room for test case setup code)
-        for (i = 0; i < 100; i = i + 1) begin
-            instruction_memory[i] = pack_instruction(`OP_NOP, 5'b0, 5'b0, 5'b0, 16'b0);  // NOP instruction
+        for (i = 0; i < PC_CORE; i = i + 1) begin
+            instruction_memory[i] = pack_instruction(`OP_NOP, 5'b0, 5'b0, 5'b0, 15'b0);  // NOP instruction
         end
         
-        // Start at address 100 (instead of 0) to leave room for test case setup code
-        m = 100;
+    // ============================================================================
+    // 32-bit signed × 32-bit signed  → 64-bit product
+    // Shift–and–add with explicit carry; all RAW hazards separated by 4 NOPs
+    // ----------------------------------------------------------------------------
+    //  Reg map
+    //  R1  = product low            R2  = product high
+    //  R3  = multiplicand (|A|)     R4  = multiplier  (|B|)
+    //  R5  = running carry          R6  = – free –
+    //  R7  = sign(A)                R8  = sign(B)
+    //  R9  = A&1 test               R10 = R7 ⊕ R8  (final sign)
+    //  R11 = sign(R1)               R12 = sign(R3)  (carry trick)
+    //  R13 = scratch                R31 = loop counter (32 … 0)
+    // ============================================================================
 
-    //-------------------------------------------------------------------------
-    // 1. Initialize product registers (R1 = low, R2 = high)
-    //-------------------------------------------------------------------------
-        instruction_memory[m++] = pack_instruction(`OP_ADI, `R1, `R0, 5'b0, 16'h0);  // [100] R1 = 0 (Low Product)
-        instruction_memory[m++] = pack_instruction(`OP_NOP, 5'b0, 5'b0, 5'b0, 16'h0); // [101] NOP
-        instruction_memory[m++] = pack_instruction(`OP_NOP, 5'b0, 5'b0, 5'b0, 16'h0); // [102] NOP
-        instruction_memory[m++] = pack_instruction(`OP_NOP, 5'b0, 5'b0, 5'b0, 16'h0); // [103] NOP
-        instruction_memory[m++] = pack_instruction(`OP_NOP, 5'b0, 5'b0, 5'b0, 16'h0); // [104] NOP
-        instruction_memory[m++] = pack_instruction(`OP_NOP, 5'b0, 5'b0, 5'b0, 16'h0); // [105] NOP
-        instruction_memory[m++] = pack_instruction(`OP_ADI, `R2, `R0, 5'b0, 16'h0);  // [106] R2 = 0 (High Product)
-        instruction_memory[m++] = pack_instruction(`OP_NOP, 5'b0, 5'b0, 5'b0, 16'h0); // [107] NOP
-        instruction_memory[m++] = pack_instruction(`OP_NOP, 5'b0, 5'b0, 5'b0, 16'h0); // [108] NOP
-        instruction_memory[m++] = pack_instruction(`OP_NOP, 5'b0, 5'b0, 5'b0, 16'h0); // [109] NOP
-        instruction_memory[m++] = pack_instruction(`OP_NOP, 5'b0, 5'b0, 5'b0, 16'h0); // [110] NOP
-        instruction_memory[m++] = pack_instruction(`OP_NOP, 5'b0, 5'b0, 5'b0, 16'h0); // [111] NOP
+    m = PC_CORE;      // Core starts at PC_CORE (moved beyond loader area)
+    // ---------------------------------------------------------------------------
+    // 1.  Move the operands out of R1/R2 so product registers are free
+    // ---------------------------------------------------------------------------
+    instruction_memory[m++] = pack_instruction(`OP_MOV, `R3, `R1, 5'd0, 15'd0); // PC_CORE
+    // Clear scratch register to avoid any loader residue
+    instruction_memory[m++] = pack_instruction(`OP_ADI, `R13, `R0, 5'd0, 15'd0); // PC_CORE+1
 
-    //-------------------------------------------------------------------------
-    // 2. Load inputs into multiplicand and multiplier registers
-        //    (Assume original inputs are in R1 and R2 from test setup; move to R3/R4)
-    //-------------------------------------------------------------------------
-        instruction_memory[m++] = pack_instruction(`OP_MOV, `R3, `R1, 5'b0, 16'h0);  // [112] R3 = multiplicand (from R1)
-        instruction_memory[m++] = pack_instruction(`OP_NOP, 5'b0, 5'b0, 5'b0, 16'h0); // [113] NOP
-        instruction_memory[m++] = pack_instruction(`OP_NOP, 5'b0, 5'b0, 5'b0, 16'h0); // [114] NOP
-        instruction_memory[m++] = pack_instruction(`OP_NOP, 5'b0, 5'b0, 5'b0, 16'h0); // [115] NOP
-        instruction_memory[m++] = pack_instruction(`OP_NOP, 5'b0, 5'b0, 5'b0, 16'h0); // [116] NOP
-        instruction_memory[m++] = pack_instruction(`OP_NOP, 5'b0, 5'b0, 5'b0, 16'h0); // [117] NOP
-        instruction_memory[m++] = pack_instruction(`OP_MOV, `R4, `R2, 5'b0, 16'h0);  // [118] R4 = multiplier (from R2)
-        instruction_memory[m++] = pack_instruction(`OP_NOP, 5'b0, 5'b0, 5'b0, 16'h0); // [119] NOP
-        instruction_memory[m++] = pack_instruction(`OP_NOP, 5'b0, 5'b0, 5'b0, 16'h0); // [120] NOP
-        instruction_memory[m++] = pack_instruction(`OP_NOP, 5'b0, 5'b0, 5'b0, 16'h0); // [121] NOP
-        instruction_memory[m++] = pack_instruction(`OP_NOP, 5'b0, 5'b0, 5'b0, 16'h0); // [122] NOP
-        instruction_memory[m++] = pack_instruction(`OP_NOP, 5'b0, 5'b0, 5'b0, 16'h0); // [123] NOP
+    instruction_memory[m++] = pack_instruction(`OP_MOV, `R4, `R2, 5'd0, 15'd0); // PC_CORE+2
+    instruction_memory[m++] = pack_instruction(`OP_NOP, 0,0,0,15'd0);           // PC_CORE+3-PC_CORE+6
+    instruction_memory[m++] = pack_instruction(`OP_NOP, 0,0,0,15'd0);           // PC_CORE+4
+    instruction_memory[m++] = pack_instruction(`OP_NOP, 0,0,0,15'd0);           // PC_CORE+5
+    instruction_memory[m++] = pack_instruction(`OP_NOP, 0,0,0,15'd0);           // PC_CORE+6
 
-    //-------------------------------------------------------------------------
-    // 3. Make multiplicand positive if needed; save sign in R7.
-    //-------------------------------------------------------------------------
-        instruction_memory[m++] = pack_instruction(`OP_LSR, `R7, `R3, 5'b0, 16'd31);  // [124] R7 = R3 >> 31 (Extract sign bit)
-        instruction_memory[m++] = pack_instruction(`OP_NOP, 5'b0, 5'b0, 5'b0, 16'h0); // [125] NOP
-        instruction_memory[m++] = pack_instruction(`OP_NOP, 5'b0, 5'b0, 5'b0, 16'h0); // [126] NOP
-        instruction_memory[m++] = pack_instruction(`OP_NOP, 5'b0, 5'b0, 5'b0, 16'h0); // [127] NOP
-        instruction_memory[m++] = pack_instruction(`OP_NOP, 5'b0, 5'b0, 5'b0, 16'h0); // [128] NOP
-        instruction_memory[m++] = pack_instruction(`OP_NOP, 5'b0, 5'b0, 5'b0, 16'h0); // [129] NOP
-        instruction_memory[m++] = pack_instruction(`OP_BZ,  `R7, 5'b0, 5'b0, 16'd11);  // [130] if (R7==0) skip next instruction (and NOPs)
-        instruction_memory[m++] = pack_instruction(`OP_NOP, 5'b0, 5'b0, 5'b0, 16'h0); // [131] NOP
-        instruction_memory[m++] = pack_instruction(`OP_NOP, 5'b0, 5'b0, 5'b0, 16'h0); // [132] NOP
-        instruction_memory[m++] = pack_instruction(`OP_NOP, 5'b0, 5'b0, 5'b0, 16'h0); // [133] NOP
-        instruction_memory[m++] = pack_instruction(`OP_NOP, 5'b0, 5'b0, 5'b0, 16'h0); // [134] NOP
-        instruction_memory[m++] = pack_instruction(`OP_NOP, 5'b0, 5'b0, 5'b0, 16'h0); // [135] NOP
-        instruction_memory[m++] = pack_instruction(`OP_NOT, `R3, `R3, 5'b0, 16'h0);   // [136] R3 = NOT R3
-        instruction_memory[m++] = pack_instruction(`OP_NOP, 5'b0, 5'b0, 5'b0, 16'h0); // [137] NOP
-        instruction_memory[m++] = pack_instruction(`OP_NOP, 5'b0, 5'b0, 5'b0, 16'h0); // [138] NOP
-        instruction_memory[m++] = pack_instruction(`OP_NOP, 5'b0, 5'b0, 5'b0, 16'h0); // [139] NOP
-        instruction_memory[m++] = pack_instruction(`OP_NOP, 5'b0, 5'b0, 5'b0, 16'h0); // [140] NOP
-        instruction_memory[m++] = pack_instruction(`OP_NOP, 5'b0, 5'b0, 5'b0, 16'h0); // [141] NOP
-        instruction_memory[m++] = pack_instruction(`OP_ADI, `R3, `R3, 5'b0, 16'd1);   // [142] R3 = R3 + 1 (Complete 2's comp)
-        instruction_memory[m++] = pack_instruction(`OP_NOP, 5'b0, 5'b0, 5'b0, 16'h0); // [143] NOP
-        instruction_memory[m++] = pack_instruction(`OP_NOP, 5'b0, 5'b0, 5'b0, 16'h0); // [144] NOP
-        instruction_memory[m++] = pack_instruction(`OP_NOP, 5'b0, 5'b0, 5'b0, 16'h0); // [145] NOP
-        instruction_memory[m++] = pack_instruction(`OP_NOP, 5'b0, 5'b0, 5'b0, 16'h0); // [146] NOP
-        instruction_memory[m++] = pack_instruction(`OP_NOP, 5'b0, 5'b0, 5'b0, 16'h0); // [147] NOP
+    // ---------------------------------------------------------------------------
+    // 2.  Zero-init product and carry
+    // ---------------------------------------------------------------------------
+    instruction_memory[m++] = pack_instruction(`OP_ADI, `R1, `R0, 5'd0, 15'd0); // PC_CORE+7
+    instruction_memory[m++] = pack_instruction(`OP_NOP, 0,0,0,15'd0);            // PC_CORE+8-PC_CORE+11
+    instruction_memory[m++] = pack_instruction(`OP_NOP, 0,0,0,15'd0);            // PC_CORE+9
+    instruction_memory[m++] = pack_instruction(`OP_NOP, 0,0,0,15'd0);            // PC_CORE+10
+    instruction_memory[m++] = pack_instruction(`OP_NOP, 0,0,0,15'd0);            // PC_CORE+11
 
-    //-------------------------------------------------------------------------
-    // 4. Make multiplier positive if needed; save sign in R8.
-    //-------------------------------------------------------------------------
-        instruction_memory[m++] = pack_instruction(`OP_LSR, `R8, `R4, 5'b0, 16'd31);  // [148] R8 = R4 >> 31 (Extract sign bit)
-        instruction_memory[m++] = pack_instruction(`OP_NOP, 5'b0, 5'b0, 5'b0, 16'h0); // [149] NOP
-        instruction_memory[m++] = pack_instruction(`OP_NOP, 5'b0, 5'b0, 5'b0, 16'h0); // [150] NOP
-        instruction_memory[m++] = pack_instruction(`OP_NOP, 5'b0, 5'b0, 5'b0, 16'h0); // [151] NOP
-        instruction_memory[m++] = pack_instruction(`OP_NOP, 5'b0, 5'b0, 5'b0, 16'h0); // [152] NOP
-        instruction_memory[m++] = pack_instruction(`OP_NOP, 5'b0, 5'b0, 5'b0, 16'h0); // [153] NOP
-        instruction_memory[m++] = pack_instruction(`OP_BZ,  `R8, 5'b0, 5'b0, 16'd11);  // [154] if (R8==0) skip next instruction (and NOPs)
-        instruction_memory[m++] = pack_instruction(`OP_NOP, 5'b0, 5'b0, 5'b0, 16'h0); // [155] NOP
-        instruction_memory[m++] = pack_instruction(`OP_NOP, 5'b0, 5'b0, 5'b0, 16'h0); // [156] NOP
-        instruction_memory[m++] = pack_instruction(`OP_NOP, 5'b0, 5'b0, 5'b0, 16'h0); // [157] NOP
-        instruction_memory[m++] = pack_instruction(`OP_NOP, 5'b0, 5'b0, 5'b0, 16'h0); // [158] NOP
-        instruction_memory[m++] = pack_instruction(`OP_NOP, 5'b0, 5'b0, 5'b0, 16'h0); // [159] NOP
-        instruction_memory[m++] = pack_instruction(`OP_NOT, `R4, `R4, 5'b0, 16'h0);   // [160] R4 = NOT R4
-        instruction_memory[m++] = pack_instruction(`OP_NOP, 5'b0, 5'b0, 5'b0, 16'h0); // [161] NOP
-        instruction_memory[m++] = pack_instruction(`OP_NOP, 5'b0, 5'b0, 5'b0, 16'h0); // [162] NOP
-        instruction_memory[m++] = pack_instruction(`OP_NOP, 5'b0, 5'b0, 5'b0, 16'h0); // [163] NOP
-        instruction_memory[m++] = pack_instruction(`OP_NOP, 5'b0, 5'b0, 5'b0, 16'h0); // [164] NOP
-        instruction_memory[m++] = pack_instruction(`OP_NOP, 5'b0, 5'b0, 5'b0, 16'h0); // [165] NOP
-        instruction_memory[m++] = pack_instruction(`OP_ADI, `R4, `R4, 5'b0, 16'd1);   // [166] R4 = R4 + 1 (Complete 2's comp)
-        instruction_memory[m++] = pack_instruction(`OP_NOP, 5'b0, 5'b0, 5'b0, 16'h0); // [167] NOP
-        instruction_memory[m++] = pack_instruction(`OP_NOP, 5'b0, 5'b0, 5'b0, 16'h0); // [168] NOP
-        instruction_memory[m++] = pack_instruction(`OP_NOP, 5'b0, 5'b0, 5'b0, 16'h0); // [169] NOP
-        instruction_memory[m++] = pack_instruction(`OP_NOP, 5'b0, 5'b0, 5'b0, 16'h0); // [170] NOP
-        instruction_memory[m++] = pack_instruction(`OP_NOP, 5'b0, 5'b0, 5'b0, 16'h0); // [171] NOP
+    instruction_memory[m++] = pack_instruction(`OP_ADI, `R2, `R0, 5'd0, 15'd0); // PC_CORE+12
+    instruction_memory[m++] = pack_instruction(`OP_NOP, 0,0,0,15'd0);            // PC_CORE+13-PC_CORE+16
+    instruction_memory[m++] = pack_instruction(`OP_NOP, 0,0,0,15'd0);            // PC_CORE+14
+    instruction_memory[m++] = pack_instruction(`OP_NOP, 0,0,0,15'd0);            // PC_CORE+15
+    instruction_memory[m++] = pack_instruction(`OP_NOP, 0,0,0,15'd0);            // PC_CORE+16
 
-    //-------------------------------------------------------------------------
-        // 5. Initialize helper register R5 and loop counter R31.
-    //-------------------------------------------------------------------------
-        instruction_memory[m++] = pack_instruction(`OP_ADI, `R5, `R0, 5'b0, 16'h0);   // [172] R5 = 0
-        instruction_memory[m++] = pack_instruction(`OP_NOP, 5'b0, 5'b0, 5'b0, 16'h0); // [173] NOP
-        instruction_memory[m++] = pack_instruction(`OP_NOP, 5'b0, 5'b0, 5'b0, 16'h0); // [174] NOP
-        instruction_memory[m++] = pack_instruction(`OP_NOP, 5'b0, 5'b0, 5'b0, 16'h0); // [175] NOP
-        instruction_memory[m++] = pack_instruction(`OP_NOP, 5'b0, 5'b0, 5'b0, 16'h0); // [176] NOP
-        instruction_memory[m++] = pack_instruction(`OP_NOP, 5'b0, 5'b0, 5'b0, 16'h0); // [177] NOP
-        instruction_memory[m++] = pack_instruction(`OP_ADI, `R31, `R0, 5'b0, 16'd32); // [178] R31 = 32 (Loop counter)
-        instruction_memory[m++] = pack_instruction(`OP_NOP, 5'b0, 5'b0, 5'b0, 16'h0); // [179] NOP
-        instruction_memory[m++] = pack_instruction(`OP_NOP, 5'b0, 5'b0, 5'b0, 16'h0); // [180] NOP
-        instruction_memory[m++] = pack_instruction(`OP_NOP, 5'b0, 5'b0, 5'b0, 16'h0); // [181] NOP
-        instruction_memory[m++] = pack_instruction(`OP_NOP, 5'b0, 5'b0, 5'b0, 16'h0); // [182] NOP
-        instruction_memory[m++] = pack_instruction(`OP_NOP, 5'b0, 5'b0, 5'b0, 16'h0); // [183] NOP
+    // ---------------------------------------------------------------------------
+    // 3.  |R3| ← abs(A)     R7←sign(A)      (special case for 0x8000_0000)
+    // ---------------------------------------------------------------------------
+    instruction_memory[m++] = pack_instruction(`OP_LSR, `R7 ,`R3 ,5'd0,15'd31); // PC_CORE+17
+    instruction_memory[m++] = pack_instruction(`OP_NOP, 0,0,0,15'd0);            // PC_CORE+18-PC_CORE+21
+    instruction_memory[m++] = pack_instruction(`OP_NOP, 0,0,0,15'd0);            // PC_CORE+19
+    instruction_memory[m++] = pack_instruction(`OP_NOP, 0,0,0,15'd0);            // PC_CORE+20
+    instruction_memory[m++] = pack_instruction(`OP_NOP, 0,0,0,15'd0);            // PC_CORE+21
 
-    //-------------------------------------------------------------------------
-        // 6. Multiplication loop START (Target Address for BNZ)
-    //-------------------------------------------------------------------------
-        // Loop_Start:
-        instruction_memory[m++] = pack_instruction(`OP_ANI, `R9, `R4, 5'b0, 16'd1);   // [184] R9 = R4 & 1 (Test LSB of multiplier)
-        instruction_memory[m++] = pack_instruction(`OP_NOP, 5'b0, 5'b0, 5'b0, 16'h0); // [185] NOP
-        instruction_memory[m++] = pack_instruction(`OP_NOP, 5'b0, 5'b0, 5'b0, 16'h0); // [186] NOP
-        instruction_memory[m++] = pack_instruction(`OP_NOP, 5'b0, 5'b0, 5'b0, 16'h0); // [187] NOP
-        instruction_memory[m++] = pack_instruction(`OP_NOP, 5'b0, 5'b0, 5'b0, 16'h0); // [188] NOP
-        instruction_memory[m++] = pack_instruction(`OP_NOP, 5'b0, 5'b0, 5'b0, 16'h0); // [189] NOP
-        instruction_memory[m++] = pack_instruction(`OP_BZ,  `R9, 5'b0, 5'b0, 16'd17);  // [190] if (R9==0) skip next 3 instructions (and NOPs)
-        instruction_memory[m++] = pack_instruction(`OP_NOP, 5'b0, 5'b0, 5'b0, 16'h0); // [191] NOP
-        instruction_memory[m++] = pack_instruction(`OP_NOP, 5'b0, 5'b0, 5'b0, 16'h0); // [192] NOP
-        instruction_memory[m++] = pack_instruction(`OP_NOP, 5'b0, 5'b0, 5'b0, 16'h0); // [193] NOP
-        instruction_memory[m++] = pack_instruction(`OP_NOP, 5'b0, 5'b0, 5'b0, 16'h0); // [194] NOP
-        instruction_memory[m++] = pack_instruction(`OP_NOP, 5'b0, 5'b0, 5'b0, 16'h0); // [195] NOP
-        // If LSB was 1:
-        instruction_memory[m++] = pack_instruction(`OP_ADD, `R1, `R1, `R3, 5'b0);     // [196] R1 = R1 + R3 (Add multiplicand to Low Prod)
-        instruction_memory[m++] = pack_instruction(`OP_NOP, 5'b0, 5'b0, 5'b0, 16'h0); // [197] NOP
-        instruction_memory[m++] = pack_instruction(`OP_NOP, 5'b0, 5'b0, 5'b0, 16'h0); // [198] NOP
-        instruction_memory[m++] = pack_instruction(`OP_NOP, 5'b0, 5'b0, 5'b0, 16'h0); // [199] NOP
-        instruction_memory[m++] = pack_instruction(`OP_NOP, 5'b0, 5'b0, 5'b0, 16'h0); // [200] NOP
-        instruction_memory[m++] = pack_instruction(`OP_NOP, 5'b0, 5'b0, 5'b0, 16'h0); // [201] NOP
-        instruction_memory[m++] = pack_instruction(`OP_ADI, `R5, `R5, 5'b0, 16'd1);   // [202] R5 = R5 + 1 (Carry handling)
-        instruction_memory[m++] = pack_instruction(`OP_NOP, 5'b0, 5'b0, 5'b0, 16'h0); // [203] NOP
-        instruction_memory[m++] = pack_instruction(`OP_NOP, 5'b0, 5'b0, 5'b0, 16'h0); // [204] NOP
-        instruction_memory[m++] = pack_instruction(`OP_NOP, 5'b0, 5'b0, 5'b0, 16'h0); // [205] NOP
-        instruction_memory[m++] = pack_instruction(`OP_NOP, 5'b0, 5'b0, 5'b0, 16'h0); // [206] NOP
-        instruction_memory[m++] = pack_instruction(`OP_NOP, 5'b0, 5'b0, 5'b0, 16'h0); // [207] NOP
-        instruction_memory[m++] = pack_instruction(`OP_ADD, `R2, `R2, `R5, 5'b0);     // [208] R2 = R2 + R5 (Update High Prod)
-        instruction_memory[m++] = pack_instruction(`OP_NOP, 5'b0, 5'b0, 5'b0, 16'h0); // [209] NOP
-        instruction_memory[m++] = pack_instruction(`OP_NOP, 5'b0, 5'b0, 5'b0, 16'h0); // [210] NOP
-        instruction_memory[m++] = pack_instruction(`OP_NOP, 5'b0, 5'b0, 5'b0, 16'h0); // [211] NOP
-        instruction_memory[m++] = pack_instruction(`OP_NOP, 5'b0, 5'b0, 5'b0, 16'h0); // [212] NOP
-        instruction_memory[m++] = pack_instruction(`OP_NOP, 5'b0, 5'b0, 5'b0, 16'h0); // [213] NOP
-        // Skip_Target / Continue:
-    // Shift registers and update loop counter:
-        instruction_memory[m++] = pack_instruction(`OP_LSR, `R4, `R4, 5'b0, 16'd1);   // [214] R4 = R4 >> 1 (Shift multiplier right)
-        instruction_memory[m++] = pack_instruction(`OP_NOP, 5'b0, 5'b0, 5'b0, 16'h0); // [215] NOP
-        instruction_memory[m++] = pack_instruction(`OP_NOP, 5'b0, 5'b0, 5'b0, 16'h0); // [216] NOP
-        instruction_memory[m++] = pack_instruction(`OP_NOP, 5'b0, 5'b0, 5'b0, 16'h0); // [217] NOP
-        instruction_memory[m++] = pack_instruction(`OP_NOP, 5'b0, 5'b0, 5'b0, 16'h0); // [218] NOP
-        instruction_memory[m++] = pack_instruction(`OP_NOP, 5'b0, 5'b0, 5'b0, 16'h0); // [219] NOP
-        instruction_memory[m++] = pack_instruction(`OP_SBI, `R31, `R31, 5'b0, 16'd1); // [220] R31 = R31 - 1 (Decrement counter)
-        instruction_memory[m++] = pack_instruction(`OP_NOP, 5'b0, 5'b0, 5'b0, 16'h0); // [221] NOP
-        instruction_memory[m++] = pack_instruction(`OP_NOP, 5'b0, 5'b0, 5'b0, 16'h0); // [222] NOP
-        instruction_memory[m++] = pack_instruction(`OP_NOP, 5'b0, 5'b0, 5'b0, 16'h0); // [223] NOP
-        instruction_memory[m++] = pack_instruction(`OP_NOP, 5'b0, 5'b0, 5'b0, 16'h0); // [224] NOP
-        instruction_memory[m++] = pack_instruction(`OP_NOP, 5'b0, 5'b0, 5'b0, 16'h0); // [225] NOP
-        instruction_memory[m++] = pack_instruction(`OP_LSL, `R3, `R3, 5'b0, 16'd1);   // [226] R3 = R3 << 1 (Shift multiplicand left)
-        instruction_memory[m++] = pack_instruction(`OP_NOP, 5'b0, 5'b0, 5'b0, 16'h0); // [227] NOP
-        instruction_memory[m++] = pack_instruction(`OP_NOP, 5'b0, 5'b0, 5'b0, 16'h0); // [228] NOP
-        instruction_memory[m++] = pack_instruction(`OP_NOP, 5'b0, 5'b0, 5'b0, 16'h0); // [229] NOP
-        instruction_memory[m++] = pack_instruction(`OP_NOP, 5'b0, 5'b0, 5'b0, 16'h0); // [230] NOP
-        instruction_memory[m++] = pack_instruction(`OP_NOP, 5'b0, 5'b0, 5'b0, 16'h0); // [231] NOP
-        instruction_memory[m++] = pack_instruction(`OP_LSL, `R5, `R5, 5'b0, 16'd1);   // [232] R5 = R5 << 1 (Shift helper left)
-        instruction_memory[m++] = pack_instruction(`OP_NOP, 5'b0, 5'b0, 5'b0, 16'h0); // [233] NOP
-        instruction_memory[m++] = pack_instruction(`OP_NOP, 5'b0, 5'b0, 5'b0, 16'h0); // [234] NOP
-        instruction_memory[m++] = pack_instruction(`OP_NOP, 5'b0, 5'b0, 5'b0, 16'h0); // [235] NOP
-        instruction_memory[m++] = pack_instruction(`OP_NOP, 5'b0, 5'b0, 5'b0, 16'h0); // [236] NOP
-        instruction_memory[m++] = pack_instruction(`OP_NOP, 5'b0, 5'b0, 5'b0, 16'h0); // [237] NOP
-        // Calculate the jump offset to loop_start based on current position
-        // Jump back to address 184 (Loop_Start)
-        // Target = 184, PC = 238, PC+1+offset = 184 → offset = 184-(238+1) = -55
-        instruction_memory[m++] = pack_instruction(`OP_BNZ, `R31, 5'b0, 5'b0, -16'd55); // [238] If R31!=0, jump back to Loop_Start
-        instruction_memory[m++] = pack_instruction(`OP_NOP, 5'b0, 5'b0, 5'b0, 16'h0); // [239] NOP
-        instruction_memory[m++] = pack_instruction(`OP_NOP, 5'b0, 5'b0, 5'b0, 16'h0); // [240] NOP
-        instruction_memory[m++] = pack_instruction(`OP_NOP, 5'b0, 5'b0, 5'b0, 16'h0); // [241] NOP
-        instruction_memory[m++] = pack_instruction(`OP_NOP, 5'b0, 5'b0, 5'b0, 16'h0); // [242] NOP
-        instruction_memory[m++] = pack_instruction(`OP_NOP, 5'b0, 5'b0, 5'b0, 16'h0); // [243] NOP
-        // End of loop
+    instruction_memory[m++] = pack_instruction(`OP_ADD, `R13,`R3 ,`R3 ,5'd0);   // PC_CORE+22 2×R3
+    instruction_memory[m++] = pack_instruction(`OP_NOP, 0,0,0,15'd0);            // PC_CORE+23-PC_CORE+26
+    instruction_memory[m++] = pack_instruction(`OP_NOP, 0,0,0,15'd0);            // PC_CORE+24
+    instruction_memory[m++] = pack_instruction(`OP_NOP, 0,0,0,15'd0);            // PC_CORE+25
+    instruction_memory[m++] = pack_instruction(`OP_NOP, 0,0,0,15'd0);            // PC_CORE+26
 
-    //-------------------------------------------------------------------------
-    // 7. Adjust the final product sign if needed.
-    //-------------------------------------------------------------------------
-        instruction_memory[m++] = pack_instruction(`OP_XOR, `R10, `R7, `R8, 5'b0);    // [244] R10 = R7 ^ R8 (Check if signs differed)
-        instruction_memory[m++] = pack_instruction(`OP_NOP, 5'b0, 5'b0, 5'b0, 16'h0); // [245] NOP
-        instruction_memory[m++] = pack_instruction(`OP_NOP, 5'b0, 5'b0, 5'b0, 16'h0); // [246] NOP
-        instruction_memory[m++] = pack_instruction(`OP_NOP, 5'b0, 5'b0, 5'b0, 16'h0); // [247] NOP
-        instruction_memory[m++] = pack_instruction(`OP_NOP, 5'b0, 5'b0, 5'b0, 16'h0); // [248] NOP
-        instruction_memory[m++] = pack_instruction(`OP_NOP, 5'b0, 5'b0, 5'b0, 16'h0); // [249] NOP
-        instruction_memory[m++] = pack_instruction(`OP_BZ,  `R10, 5'b0, 5'b0, 16'd29); // [250] if (R10==0) skip next instructions (and NOPs)
-        instruction_memory[m++] = pack_instruction(`OP_NOP, 5'b0, 5'b0, 5'b0, 16'h0); // [251] NOP
-        instruction_memory[m++] = pack_instruction(`OP_NOP, 5'b0, 5'b0, 5'b0, 16'h0); // [252] NOP
-        instruction_memory[m++] = pack_instruction(`OP_NOP, 5'b0, 5'b0, 5'b0, 16'h0); // [253] NOP
-        instruction_memory[m++] = pack_instruction(`OP_NOP, 5'b0, 5'b0, 5'b0, 16'h0); // [254] NOP
-        instruction_memory[m++] = pack_instruction(`OP_NOP, 5'b0, 5'b0, 5'b0, 16'h0); // [255] NOP
-        // If signs differed, take two's complement of 64-bit result (R2:R1)
-        instruction_memory[m++] = pack_instruction(`OP_NOT, `R2, `R2, 5'b0, 16'h0);   // [256] R2 = NOT R2
-        instruction_memory[m++] = pack_instruction(`OP_NOP, 5'b0, 5'b0, 5'b0, 16'h0); // [257] NOP
-        instruction_memory[m++] = pack_instruction(`OP_NOP, 5'b0, 5'b0, 5'b0, 16'h0); // [258] NOP
-        instruction_memory[m++] = pack_instruction(`OP_NOP, 5'b0, 5'b0, 5'b0, 16'h0); // [259] NOP
-        instruction_memory[m++] = pack_instruction(`OP_NOP, 5'b0, 5'b0, 5'b0, 16'h0); // [260] NOP
-        instruction_memory[m++] = pack_instruction(`OP_NOP, 5'b0, 5'b0, 5'b0, 16'h0); // [261] NOP
-        instruction_memory[m++] = pack_instruction(`OP_ADI, `R2, `R2, 5'b0, 16'd1);   // [262] R2 = R2 + 1 (If R1 was 0, this finishes)
-        instruction_memory[m++] = pack_instruction(`OP_NOP, 5'b0, 5'b0, 5'b0, 16'h0); // [263] NOP
-        instruction_memory[m++] = pack_instruction(`OP_NOP, 5'b0, 5'b0, 5'b0, 16'h0); // [264] NOP
-        instruction_memory[m++] = pack_instruction(`OP_NOP, 5'b0, 5'b0, 5'b0, 16'h0); // [265] NOP
-        instruction_memory[m++] = pack_instruction(`OP_NOP, 5'b0, 5'b0, 5'b0, 16'h0); // [266] NOP
-        instruction_memory[m++] = pack_instruction(`OP_NOP, 5'b0, 5'b0, 5'b0, 16'h0); // [267] NOP
-        instruction_memory[m++] = pack_instruction(`OP_NOT, `R1, `R1, 5'b0, 16'h0);   // [268] R1 = NOT R1
-        instruction_memory[m++] = pack_instruction(`OP_NOP, 5'b0, 5'b0, 5'b0, 16'h0); // [269] NOP
-        instruction_memory[m++] = pack_instruction(`OP_NOP, 5'b0, 5'b0, 5'b0, 16'h0); // [270] NOP
-        instruction_memory[m++] = pack_instruction(`OP_NOP, 5'b0, 5'b0, 5'b0, 16'h0); // [271] NOP
-        instruction_memory[m++] = pack_instruction(`OP_NOP, 5'b0, 5'b0, 5'b0, 16'h0); // [272] NOP
-        instruction_memory[m++] = pack_instruction(`OP_NOP, 5'b0, 5'b0, 5'b0, 16'h0); // [273] NOP
-        instruction_memory[m++] = pack_instruction(`OP_ADI, `R1, `R1, 5'b0, 16'd1);   // [274] R1 = R1 + 1 (Completes 2's comp)
-        instruction_memory[m++] = pack_instruction(`OP_NOP, 5'b0, 5'b0, 5'b0, 16'h0); // [275] NOP
-        instruction_memory[m++] = pack_instruction(`OP_NOP, 5'b0, 5'b0, 5'b0, 16'h0); // [276] NOP
-        instruction_memory[m++] = pack_instruction(`OP_NOP, 5'b0, 5'b0, 5'b0, 16'h0); // [277] NOP
-        instruction_memory[m++] = pack_instruction(`OP_NOP, 5'b0, 5'b0, 5'b0, 16'h0); // [278] NOP
-        instruction_memory[m++] = pack_instruction(`OP_NOP, 5'b0, 5'b0, 5'b0, 16'h0); // [279] NOP
-        // Skip_Sign_Adjust:
+    //  ▸ MAXNEG?  Skip negation to PC_ABS_A_SIGN
+    instruction_memory[m++] = pack_instruction(`OP_BZ , `R13,5'd0,5'd0,15'd19); // PC_CORE+27 →PC_ABS_A_SIGN
+    instruction_memory[m++] = pack_instruction(`OP_NOP, 0,0,0,15'd0);            // PC_CORE+28-PC_CORE+31
+    instruction_memory[m++] = pack_instruction(`OP_NOP, 0,0,0,15'd0);            // PC_CORE+29
+    instruction_memory[m++] = pack_instruction(`OP_NOP, 0,0,0,15'd0);            // PC_CORE+30
+    instruction_memory[m++] = pack_instruction(`OP_NOP, 0,0,0,15'd0);            // PC_CORE+31
 
-    //-------------------------------------------------------------------------
-        // 8. End of program: Jump -1 steps (halt)
-    //-------------------------------------------------------------------------
-        instruction_memory[m++] = pack_instruction(`OP_JMP, 5'b0, 5'b0, 5'b0, 16'h7FFF); // [280] JMP -1 (Halt)
+    //  ▸ Positive?  Skip negation to PC_ABS_A_SIGN
+    instruction_memory[m++] = pack_instruction(`OP_BZ , `R7 ,5'd0,5'd0,15'd14); // PC_CORE+32 →PC_ABS_A_SIGN
+    instruction_memory[m++] = pack_instruction(`OP_NOP, 0,0,0,15'd0);            // PC_CORE+33-PC_CORE+36
+    instruction_memory[m++] = pack_instruction(`OP_NOP, 0,0,0,15'd0);            // PC_CORE+34
+    instruction_memory[m++] = pack_instruction(`OP_NOP, 0,0,0,15'd0);            // PC_CORE+35
+    instruction_memory[m++] = pack_instruction(`OP_NOP, 0,0,0,15'd0);            // PC_CORE+36
+
+    instruction_memory[m++] = pack_instruction(`OP_NOT,`R3 ,`R3 ,5'd0,15'd0);   // PC_CORE+37
+    instruction_memory[m++] = pack_instruction(`OP_NOP, 0,0,0,15'd0);            // PC_CORE+38-PC_CORE+41
+    instruction_memory[m++] = pack_instruction(`OP_NOP, 0,0,0,15'd0);            // PC_CORE+39
+    instruction_memory[m++] = pack_instruction(`OP_NOP, 0,0,0,15'd0);            // PC_CORE+40
+    instruction_memory[m++] = pack_instruction(`OP_NOP, 0,0,0,15'd0);            // PC_CORE+41
+
+    instruction_memory[m++] = pack_instruction(`OP_ADI,`R3 ,`R3 ,5'd0,15'd1);   // PC_CORE+42
+    instruction_memory[m++] = pack_instruction(`OP_NOP, 0,0,0,15'd0);            // PC_CORE+43-PC_CORE+46
+    instruction_memory[m++] = pack_instruction(`OP_NOP, 0,0,0,15'd0);            // PC_CORE+44
+    instruction_memory[m++] = pack_instruction(`OP_NOP, 0,0,0,15'd0);            // PC_CORE+45
+    instruction_memory[m++] = pack_instruction(`OP_NOP, 0,0,0,15'd0);            // PC_CORE+46
+
+    // ---------------------------------------------------------------------------
+    // 4.  |R4| ← abs(B)     R8←sign(B)      (same MAXNEG guard)
+    // ---------------------------------------------------------------------------
+    instruction_memory[m++] = pack_instruction(`OP_LSR, `R8 ,`R4 ,5'd0,15'd31); // PC_CORE+47
+    instruction_memory[m++] = pack_instruction(`OP_NOP, 0,0,0,15'd0);            // PC_CORE+48-PC_CORE+51
+    instruction_memory[m++] = pack_instruction(`OP_NOP, 0,0,0,15'd0);            // PC_CORE+49
+    instruction_memory[m++] = pack_instruction(`OP_NOP, 0,0,0,15'd0);            // PC_CORE+50
+    instruction_memory[m++] = pack_instruction(`OP_NOP, 0,0,0,15'd0);            // PC_CORE+51
+
+    instruction_memory[m++] = pack_instruction(`OP_ADD, `R13,`R4 ,`R4 ,5'd0);   // PC_CORE+52
+    instruction_memory[m++] = pack_instruction(`OP_NOP, 0,0,0,15'd0);            // PC_CORE+53-PC_CORE+56
+    instruction_memory[m++] = pack_instruction(`OP_NOP, 0,0,0,15'd0);            // PC_CORE+54
+    instruction_memory[m++] = pack_instruction(`OP_NOP, 0,0,0,15'd0);            // PC_CORE+55
+    instruction_memory[m++] = pack_instruction(`OP_NOP, 0,0,0,15'd0);            // PC_CORE+56
+
+    //  ▸ MAXNEG?  Skip negation to PC_COUNTER_SET
+    instruction_memory[m++] = pack_instruction(`OP_BZ , `R13,5'd0,5'd0,15'd19); // PC_CORE+57 →PC_COUNTER_SET
+    instruction_memory[m++] = pack_instruction(`OP_NOP, 0,0,0,15'd0);            // PC_CORE+58-PC_CORE+61
+    instruction_memory[m++] = pack_instruction(`OP_NOP, 0,0,0,15'd0);            // PC_CORE+59
+    instruction_memory[m++] = pack_instruction(`OP_NOP, 0,0,0,15'd0);            // PC_CORE+60
+    instruction_memory[m++] = pack_instruction(`OP_NOP, 0,0,0,15'd0);            // PC_CORE+61
+
+    //  ▸ Positive?  Skip negation to PC_COUNTER_SET
+    instruction_memory[m++] = pack_instruction(`OP_BZ , `R8 ,5'd0,5'd0,15'd14); // PC_CORE+62 →PC_COUNTER_SET
+    instruction_memory[m++] = pack_instruction(`OP_NOP, 0,0,0,15'd0);            // PC_CORE+63-PC_CORE+66
+    instruction_memory[m++] = pack_instruction(`OP_NOP, 0,0,0,15'd0);            // PC_CORE+64
+    instruction_memory[m++] = pack_instruction(`OP_NOP, 0,0,0,15'd0);            // PC_CORE+65
+    instruction_memory[m++] = pack_instruction(`OP_NOP, 0,0,0,15'd0);            // PC_CORE+66
+
+    instruction_memory[m++] = pack_instruction(`OP_NOT,`R4 ,`R4 ,5'd0,15'd0);   // PC_CORE+67
+    instruction_memory[m++] = pack_instruction(`OP_NOP, 0,0,0,15'd0);            // PC_CORE+68-PC_CORE+71
+    instruction_memory[m++] = pack_instruction(`OP_NOP, 0,0,0,15'd0);            // PC_CORE+69
+    instruction_memory[m++] = pack_instruction(`OP_NOP, 0,0,0,15'd0);            // PC_CORE+70
+    instruction_memory[m++] = pack_instruction(`OP_NOP, 0,0,0,15'd0);            // PC_CORE+71
+
+    instruction_memory[m++] = pack_instruction(`OP_ADI,`R4 ,`R4 ,5'd0,15'd1);   // PC_CORE+72
+    instruction_memory[m++] = pack_instruction(`OP_NOP, 0,0,0,15'd0);            // PC_CORE+73-PC_CORE+76
+    instruction_memory[m++] = pack_instruction(`OP_NOP, 0,0,0,15'd0);            // PC_CORE+74
+    instruction_memory[m++] = pack_instruction(`OP_NOP, 0,0,0,15'd0);            // PC_CORE+75
+    instruction_memory[m++] = pack_instruction(`OP_NOP, 0,0,0,15'd0);            // PC_CORE+76
+
+    // ---------------------------------------------------------------------------
+    // 5.  carry ←0 ,  cnt ←32
+    // ---------------------------------------------------------------------------
+    instruction_memory[m++] = pack_instruction(`OP_ADI,`R5 ,`R0 ,5'd0,15'd0);   // PC_CORE+77
+    instruction_memory[m++] = pack_instruction(`OP_NOP,0,0,0,15'd0);             // PC_CORE+78-PC_CORE+81
+    instruction_memory[m++] = pack_instruction(`OP_NOP,0,0,0,15'd0);             // PC_CORE+79
+    instruction_memory[m++] = pack_instruction(`OP_NOP,0,0,0,15'd0);             // PC_CORE+80
+    instruction_memory[m++] = pack_instruction(`OP_NOP,0,0,0,15'd0);             // PC_CORE+81
+
+    instruction_memory[m++] = pack_instruction(`OP_ADI,`R31,`R0 ,5'd0,15'd32);  // PC_CORE+82
+    instruction_memory[m++] = pack_instruction(`OP_NOP,0,0,0,15'd0);             // PC_CORE+83-PC_CORE+86
+    instruction_memory[m++] = pack_instruction(`OP_NOP,0,0,0,15'd0);             // PC_CORE+84
+    instruction_memory[m++] = pack_instruction(`OP_NOP,0,0,0,15'd0);             // PC_CORE+85
+    instruction_memory[m++] = pack_instruction(`OP_NOP,0,0,0,15'd0);             // PC_CORE+86
+
+    // ---------------------------------------------------------------------------
+    // 6.  LOOP-START  (PC = 190)
+    // ---------------------------------------------------------------------------
+    instruction_memory[m++] = pack_instruction(`OP_ANI,`R9 ,`R4 ,5'd0,15'd1);   // PC_CORE+87
+    instruction_memory[m++] = pack_instruction(`OP_NOP,0,0,0,15'd0);             // PC_CORE+88-PC_CORE+91
+    instruction_memory[m++] = pack_instruction(`OP_NOP,0,0,0,15'd0);             // PC_CORE+89
+    instruction_memory[m++] = pack_instruction(`OP_NOP,0,0,0,15'd0);             // PC_CORE+90
+    instruction_memory[m++] = pack_instruction(`OP_NOP,0,0,0,15'd0);             // PC_CORE+91
+
+    //  ▸ LSB = 0?  skip ADD-carry block to PC_LOOP_TAIL
+    instruction_memory[m++] = pack_instruction(`OP_BZ ,`R9 ,5'd0,5'd0,15'd39);   // PC_CORE+92 →PC_LOOP_TAIL
+    instruction_memory[m++] = pack_instruction(`OP_NOP,0,0,0,15'd0);             // PC_CORE+93-PC_CORE+96
+    instruction_memory[m++] = pack_instruction(`OP_NOP,0,0,0,15'd0);             // PC_CORE+94
+    instruction_memory[m++] = pack_instruction(`OP_NOP,0,0,0,15'd0);             // PC_CORE+95
+    instruction_memory[m++] = pack_instruction(`OP_NOP,0,0,0,15'd0);             // PC_CORE+96
+
+    // -----  (LSB = 1)  product_low += multiplicand  ----------------------------
+    instruction_memory[m++] = pack_instruction(`OP_ADD,`R1 ,`R1 ,`R3 ,5'd0);     // PC_CORE+97
+    instruction_memory[m++] = pack_instruction(`OP_NOP,0,0,0,15'd0);             // PC_CORE+98-PC_CORE+101
+    instruction_memory[m++] = pack_instruction(`OP_NOP,0,0,0,15'd0);             // PC_CORE+99
+    instruction_memory[m++] = pack_instruction(`OP_NOP,0,0,0,15'd0);             // PC_CORE+100
+    instruction_memory[m++] = pack_instruction(`OP_NOP,0,0,0,15'd0);             // PC_CORE+101
+
+    // -----  unsigned-carry trick  ----------------------------------------------
+    instruction_memory[m++] = pack_instruction(`OP_SLT,`R5 ,`R1 ,`R3 ,5'd0);      // PC_CORE+102
+    instruction_memory[m++] = pack_instruction(`OP_NOP,0,0,0,15'd0);             // PC_CORE+103-PC_CORE+106
+    instruction_memory[m++] = pack_instruction(`OP_NOP,0,0,0,15'd0);             // PC_CORE+104
+    instruction_memory[m++] = pack_instruction(`OP_NOP,0,0,0,15'd0);             // PC_CORE+105
+    instruction_memory[m++] = pack_instruction(`OP_NOP,0,0,0,15'd0);             // PC_CORE+106
+
+    instruction_memory[m++] = pack_instruction(`OP_LSR,`R11,`R1 ,5'd0,15'd31);      // PC_CORE+107
+    instruction_memory[m++] = pack_instruction(`OP_NOP,0,0,0,15'd0);             // PC_CORE+108-PC_CORE+111
+    instruction_memory[m++] = pack_instruction(`OP_NOP,0,0,0,15'd0);             // PC_CORE+109
+    instruction_memory[m++] = pack_instruction(`OP_NOP,0,0,0,15'd0);             // PC_CORE+110
+    instruction_memory[m++] = pack_instruction(`OP_NOP,0,0,0,15'd0);             // PC_CORE+111
+
+    instruction_memory[m++] = pack_instruction(`OP_XOR,`R5 ,`R5 ,`R11,5'd0);        // PC_CORE+112
+    instruction_memory[m++] = pack_instruction(`OP_NOP,0,0,0,15'd0);             // PC_CORE+113-PC_CORE+116
+    instruction_memory[m++] = pack_instruction(`OP_NOP,0,0,0,15'd0);             // PC_CORE+114
+    instruction_memory[m++] = pack_instruction(`OP_NOP,0,0,0,15'd0);             // PC_CORE+115
+    instruction_memory[m++] = pack_instruction(`OP_NOP,0,0,0,15'd0);             // PC_CORE+116
+
+    instruction_memory[m++] = pack_instruction(`OP_LSR,`R12,`R3 ,5'd0,15'd31);       // PC_CORE+117
+    instruction_memory[m++] = pack_instruction(`OP_NOP,0,0,0,15'd0);             // PC_CORE+118-PC_CORE+121
+    instruction_memory[m++] = pack_instruction(`OP_NOP,0,0,0,15'd0);             // PC_CORE+119
+    instruction_memory[m++] = pack_instruction(`OP_NOP,0,0,0,15'd0);             // PC_CORE+120
+    instruction_memory[m++] = pack_instruction(`OP_NOP,0,0,0,15'd0);             // PC_CORE+121
+
+    instruction_memory[m++] = pack_instruction(`OP_XOR,`R5 ,`R5 ,`R12,5'd0);        // PC_CORE+122
+    instruction_memory[m++] = pack_instruction(`OP_NOP,0,0,0,15'd0);             // PC_CORE+123-PC_CORE+126
+    instruction_memory[m++] = pack_instruction(`OP_NOP,0,0,0,15'd0);             // PC_CORE+124
+    instruction_memory[m++] = pack_instruction(`OP_NOP,0,0,0,15'd0);             // PC_CORE+125
+    instruction_memory[m++] = pack_instruction(`OP_NOP,0,0,0,15'd0);             // PC_CORE+126
+
+    instruction_memory[m++] = pack_instruction(`OP_ADD,`R2 ,`R2 ,`R5 ,5'd0);         // PC_CORE+127
+    instruction_memory[m++] = pack_instruction(`OP_NOP,0,0,0,15'd0);             // PC_CORE+128-PC_CORE+131
+    instruction_memory[m++] = pack_instruction(`OP_NOP,0,0,0,15'd0);             // PC_CORE+129
+    instruction_memory[m++] = pack_instruction(`OP_NOP,0,0,0,15'd0);             // PC_CORE+130
+    instruction_memory[m++] = pack_instruction(`OP_NOP,0,0,0,15'd0);             // PC_CORE+131
+
+    // -----  common tail of loop  -----------------------------------------------
+    instruction_memory[m++] = pack_instruction(`OP_LSR,`R4 ,`R4 ,5'd0,15'd1);        // PC_CORE+132
+    instruction_memory[m++] = pack_instruction(`OP_NOP,0,0,0,15'd0);             // PC_CORE+133-PC_CORE+136
+    instruction_memory[m++] = pack_instruction(`OP_NOP,0,0,0,15'd0);             // PC_CORE+134
+    instruction_memory[m++] = pack_instruction(`OP_NOP,0,0,0,15'd0);             // PC_CORE+135
+    instruction_memory[m++] = pack_instruction(`OP_NOP,0,0,0,15'd0);             // PC_CORE+136
+
+    instruction_memory[m++] = pack_instruction(`OP_SBI,`R31,`R31,5'd0,15'd1);         // PC_CORE+137
+    instruction_memory[m++] = pack_instruction(`OP_NOP,0,0,0,15'd0);             // PC_CORE+138-PC_CORE+141
+    instruction_memory[m++] = pack_instruction(`OP_NOP,0,0,0,15'd0);             // PC_CORE+139
+    instruction_memory[m++] = pack_instruction(`OP_NOP,0,0,0,15'd0);             // PC_CORE+140
+    instruction_memory[m++] = pack_instruction(`OP_NOP,0,0,0,15'd0);             // PC_CORE+141
+
+    instruction_memory[m++] = pack_instruction(`OP_LSL,`R3 ,`R3 ,5'd0,15'd1);         // PC_CORE+142
+    instruction_memory[m++] = pack_instruction(`OP_NOP,0,0,0,15'd0);             // PC_CORE+143-PC_CORE+146
+    instruction_memory[m++] = pack_instruction(`OP_NOP,0,0,0,15'd0);             // PC_CORE+144
+    instruction_memory[m++] = pack_instruction(`OP_NOP,0,0,0,15'd0);             // PC_CORE+145
+    instruction_memory[m++] = pack_instruction(`OP_NOP,0,0,0,15'd0);             // PC_CORE+146
+
+    //  ▸ loop back to PC_LOOP_HEAD : offset = PC_LOOP_HEAD − (PC_LOOP_BRANCH+1) = −61
+    instruction_memory[m++] = pack_instruction(`OP_BNZ,`R31,5'd0,5'd0,-15'sd61);    // PC_CORE+147 → Jump back to PC_LOOP_HEAD
+    instruction_memory[m++] = pack_instruction(`OP_NOP,0,0,0,15'd0);             // PC_CORE+148-PC_CORE+151
+    instruction_memory[m++] = pack_instruction(`OP_NOP,0,0,0,15'd0);             // PC_CORE+149
+    instruction_memory[m++] = pack_instruction(`OP_NOP,0,0,0,15'd0);             // PC_CORE+150
+    instruction_memory[m++] = pack_instruction(`OP_NOP,0,0,0,15'd0);             // PC_CORE+151
+
+    // ---------------------------------------------------------------------------
+    // 7.  Apply sign  (R10 = R7 ⊕ R8)
+    // ---------------------------------------------------------------------------
+    instruction_memory[m++] = pack_instruction(`OP_XOR,`R10,`R7 ,`R8 ,5'd0);         // PC_CORE+152
+    instruction_memory[m++] = pack_instruction(`OP_NOP,0,0,0,15'd0);             // PC_CORE+153-PC_CORE+156
+    instruction_memory[m++] = pack_instruction(`OP_NOP,0,0,0,15'd0);             // PC_CORE+154
+    instruction_memory[m++] = pack_instruction(`OP_NOP,0,0,0,15'd0);             // PC_CORE+155
+    instruction_memory[m++] = pack_instruction(`OP_NOP,0,0,0,15'd0);             // PC_CORE+156
+
+    //  ▸ signs equal?  skip 2-complement to PC_HALT
+    instruction_memory[m++] = pack_instruction(`OP_BZ ,`R10,5'd0,5'd0,15'd24);         // PC_CORE+157 →PC_HALT
+    instruction_memory[m++] = pack_instruction(`OP_NOP,0,0,0,15'd0);             // PC_CORE+158-PC_CORE+161
+    instruction_memory[m++] = pack_instruction(`OP_NOP,0,0,0,15'd0);             // PC_CORE+159
+    instruction_memory[m++] = pack_instruction(`OP_NOP,0,0,0,15'd0);             // PC_CORE+160
+    instruction_memory[m++] = pack_instruction(`OP_NOP,0,0,0,15'd0);             // PC_CORE+161
+
+    instruction_memory[m++] = pack_instruction(`OP_NOT,`R2 ,`R2 ,5'd0,15'd0);          // PC_CORE+162
+    instruction_memory[m++] = pack_instruction(`OP_NOP,0,0,0,15'd0);             // PC_CORE+163-PC_CORE+166
+    instruction_memory[m++] = pack_instruction(`OP_NOP,0,0,0,15'd0);             // PC_CORE+164
+    instruction_memory[m++] = pack_instruction(`OP_NOP,0,0,0,15'd0);             // PC_CORE+165
+    instruction_memory[m++] = pack_instruction(`OP_NOP,0,0,0,15'd0);             // PC_CORE+166
+
+    instruction_memory[m++] = pack_instruction(`OP_ADI,`R2 ,`R2 ,5'd0,15'd1);          // PC_CORE+167
+    instruction_memory[m++] = pack_instruction(`OP_NOP,0,0,0,15'd0);             // PC_CORE+168-PC_CORE+171
+    instruction_memory[m++] = pack_instruction(`OP_NOP,0,0,0,15'd0);             // PC_CORE+169
+    instruction_memory[m++] = pack_instruction(`OP_NOP,0,0,0,15'd0);             // PC_CORE+170
+    instruction_memory[m++] = pack_instruction(`OP_NOP,0,0,0,15'd0);             // PC_CORE+171
+
+    instruction_memory[m++] = pack_instruction(`OP_NOT,`R1 ,`R1 ,5'd0,15'd0);          // PC_CORE+172
+    instruction_memory[m++] = pack_instruction(`OP_NOP,0,0,0,15'd0);             // PC_CORE+173-PC_CORE+176
+    instruction_memory[m++] = pack_instruction(`OP_NOP,0,0,0,15'd0);             // PC_CORE+174
+    instruction_memory[m++] = pack_instruction(`OP_NOP,0,0,0,15'd0);             // PC_CORE+175
+    instruction_memory[m++] = pack_instruction(`OP_NOP,0,0,0,15'd0);             // PC_CORE+176
+
+    instruction_memory[m++] = pack_instruction(`OP_ADI,`R1 ,`R1 ,5'd0,15'd1);          // PC_CORE+177
+    instruction_memory[m++] = pack_instruction(`OP_NOP,0,0,0,15'd0);             // PC_CORE+178-PC_CORE+181
+    instruction_memory[m++] = pack_instruction(`OP_NOP,0,0,0,15'd0);             // PC_CORE+179
+    instruction_memory[m++] = pack_instruction(`OP_NOP,0,0,0,15'd0);             // PC_CORE+180
+    instruction_memory[m++] = pack_instruction(`OP_NOP,0,0,0,15'd0);             // PC_CORE+181
+
+    // ---------------------------------------------------------------------------
+    // 8.  HALT  (JMP  –1)
+    // ---------------------------------------------------------------------------
+    instruction_memory[m++] = pack_instruction(`OP_JMP,5'd0,5'd0,5'd0,-15'h7FFF);    // PC_CORE+182 // Halt by jumping -1 (PC+1-1)
+    instruction_memory[m++] = pack_instruction(`OP_NOP,0,0,0,15'd0);             // PC_CORE+183-PC_CORE+186
+    instruction_memory[m++] = pack_instruction(`OP_NOP,0,0,0,15'd0);             // PC_CORE+184
+    instruction_memory[m++] = pack_instruction(`OP_NOP,0,0,0,15'd0);             // PC_CORE+185
+    instruction_memory[m++] = pack_instruction(`OP_NOP,0,0,0,15'd0);             // PC_CORE+186
+
+//  … rest of I-mem already filled with NOPs
 
     //-------------------------------------------------------------------------
     // 9. Fill remaining memory with NOPs.
     //-------------------------------------------------------------------------
     for (i = m; i < 1024; i = i + 1) begin
-            instruction_memory[i] = pack_instruction(`OP_NOP, 5'b0, 5'b0, 5'b0, 16'h0);
+            instruction_memory[i] = pack_instruction(`OP_NOP, 5'b0, 5'b0, 5'b0, 15'h0);
     end
 end
 
-    // Task to wait for program completion (PC = 280 and stable)
+    // Task to wait for program completion (PC = 285 and stable)
     task wait_for_completion;
         begin
             stable_count = 0;
@@ -423,9 +535,9 @@ end
             while (stable_count < 5) begin
                 @(posedge clk);
                 
-                // Check if PC is stable at the expected final address
-                // Jump takes 3 cycles to complete, so we need to check if PC is 280, 281, or 282
-                if (cpu.PC == 280 || cpu.PC == 281 || cpu.PC == 282) begin
+                // Check if PC is stable at the expected final halt address
+                // HALT instruction at address PC_HALT with JMP -1 should keep PC at PC_HALT or nearby
+                if (cpu.PC == PC_HALT || cpu.PC == PC_HALT + 1 || cpu.PC == PC_HALT + 2) begin
                     stable_count = stable_count + 1;
                     stuck_count = 0;  // Reset stuck counter when PC changes
                 end else begin
@@ -445,394 +557,267 @@ end
                 
                 last_pc = cpu.PC;  // Record current PC for next cycle comparison
             end
-            $display("Program execution complete - PC stable at 280");
+            $display("Program execution complete - PC stable at PC_HALT (%0d)", PC_HALT);
         end
     endtask
 
-    // Test stimulus
+    //---------------------------------------------------------------------
+    // Simple self-contained test executor
+    //---------------------------------------------------------------------
+    task run_test_case(
+            input  [8*32-1:0] name,    // Label printed to the console (32 chars max)
+            input  [31:0] opA,      // Multiplicand  (R1)
+            input  [31:0] opB,      // Multiplier    (R2)
+            input  [31:0] exp_lo,   // Expected low  32-b result
+            input  [31:0] exp_hi    // Expected high 32-b result
+        );
+        integer j, m, pc_offset;
+    begin
+        $display("\n%s", name);
+
+        //--------------------------------------------------------------
+        // 1. Load 32-bit values with fixed instruction count
+        //--------------------------------------------------------------
+        m = 0;
+        load32(m, `R1, opA);
+        load32(m, `R2, opB);
+        load32(m, `R3, exp_lo);
+        load32(m, `R4, exp_hi);
+
+        // Jump to multiplication algorithm at address PC_CORE
+        pc_offset = PC_CORE - (m + 1);
+        instruction_memory[m++] = pack_instruction(`OP_JMP, 5'd0, 5'd0, 5'd0, pc_offset[14:0]);
+        
+        $display("Loader size: %0d instructions, Jump offset: %0d", m, pc_offset);
+
+        //--------------------------------------------------------------
+        // 2.  Push the freshly-built loader into the DUT's I-mem.
+        //--------------------------------------------------------------
+        for (j = 0; j < 1024; j = j + 1)
+            cpu.if_stage.inst_mem.memory[j] = instruction_memory[j];
+
+        //--------------------------------------------------------------
+        // 3.  Run the program, wait for it to halt, and score it.
+        //--------------------------------------------------------------
+        rst = 1;  #20;  rst = 0;  #1;
+        wait_for_completion();
+
+        if (R1_debug === exp_lo && R2_debug === exp_hi) begin
+            $display("%s PASSED", name);
+            tests_passed++;
+        end else begin
+            $display("%s FAILED -- got 0x%h:%h   expected 0x%h:%h",
+                     name, R2_debug, R1_debug, exp_hi, exp_lo);
+            tests_failed++;
+        end
+    end
+    endtask
+
+    //----------------------------------------------------------------------
+    //  Test-vector table -- call run_test_case() for each entry
+    //----------------------------------------------------------------------
     initial begin
-        // Initialize waveform dumping
         $dumpfile("hw6_tb.vcd");
         $dumpvars(0, hw6_tb);
 
-        // Reset CPU before starting tests
-        rst = 1;
-        #20; // Hold reset for 2 cycles
-        rst = 0;
-        #1; // Release reset
+        $display("Begin Test Cases");
 
-        // --- Test Case 1: 0 * 0 ---
-        $display("\nTest Case 1: 0 * 0");
-        // Setup inputs directly in registers (requires internal path knowledge)
-        // This approach bypasses the test instruction loading issue but is less realistic
-        // A better approach loads setup instructions, jumps, waits, then checks.
-        // We'll use the instruction loading approach.
+        tests_passed = 0;
+        tests_failed = 0;
+        total_tests  = 10;
 
-        // Load Test Case 1 setup instructions into local memory array
-        m = 0; // Overwrite starting from address 0 for test setup
-        instruction_memory[m++] = pack_instruction(`OP_ADI, `R1, `R0, 5'b0, 16'h0);  // ADI R1, R0, #0 (Input 1)
-        instruction_memory[m++] = pack_instruction(`OP_NOP, 5'b0, 5'b0, 5'b0, 16'b0); 
-        instruction_memory[m++] = pack_instruction(`OP_NOP, 5'b0, 5'b0, 5'b0, 16'b0); 
-        instruction_memory[m++] = pack_instruction(`OP_NOP, 5'b0, 5'b0, 5'b0, 16'b0); 
-        instruction_memory[m++] = pack_instruction(`OP_NOP, 5'b0, 5'b0, 5'b0, 16'b0); 
-        instruction_memory[m++] = pack_instruction(`OP_NOP, 5'b0, 5'b0, 5'b0, 16'b0); // Timing NOPs
-        instruction_memory[m++] = pack_instruction(`OP_ADI, `R2, `R0, 5'b0, 16'h0);  // ADI R2, R0, #0 (Input 2)
-        instruction_memory[m++] = pack_instruction(`OP_NOP, 5'b0, 5'b0, 5'b0, 16'b0); 
-        instruction_memory[m++] = pack_instruction(`OP_NOP, 5'b0, 5'b0, 5'b0, 16'b0); 
-        instruction_memory[m++] = pack_instruction(`OP_NOP, 5'b0, 5'b0, 5'b0, 16'b0); 
-        instruction_memory[m++] = pack_instruction(`OP_NOP, 5'b0, 5'b0, 5'b0, 16'b0); 
-        instruction_memory[m++] = pack_instruction(`OP_NOP, 5'b0, 5'b0, 5'b0, 16'b0); // Timing NOPs
-        instruction_memory[m++] = pack_instruction(`OP_ADI, `R3, `R0, 5'b0, 16'h0);  // ADI R3, R0, #0 (Expected Result Low)
-        instruction_memory[m++] = pack_instruction(`OP_NOP, 5'b0, 5'b0, 5'b0, 16'b0); 
-        instruction_memory[m++] = pack_instruction(`OP_NOP, 5'b0, 5'b0, 5'b0, 16'b0); 
-        instruction_memory[m++] = pack_instruction(`OP_NOP, 5'b0, 5'b0, 5'b0, 16'b0); 
-        instruction_memory[m++] = pack_instruction(`OP_NOP, 5'b0, 5'b0, 5'b0, 16'b0); 
-        instruction_memory[m++] = pack_instruction(`OP_NOP, 5'b0, 5'b0, 5'b0, 16'b0); // Timing NOPs
-        instruction_memory[m++] = pack_instruction(`OP_ADI, `R4, `R0, 5'b0, 16'h0);  // ADI R4, R0, #0 (Expected Result High)
-        instruction_memory[m++] = pack_instruction(`OP_NOP, 5'b0, 5'b0, 5'b0, 16'b0); 
-        instruction_memory[m++] = pack_instruction(`OP_NOP, 5'b0, 5'b0, 5'b0, 16'b0); 
-        instruction_memory[m++] = pack_instruction(`OP_NOP, 5'b0, 5'b0, 5'b0, 16'b0); 
-        instruction_memory[m++] = pack_instruction(`OP_NOP, 5'b0, 5'b0, 5'b0, 16'b0); 
-        instruction_memory[m++] = pack_instruction(`OP_NOP, 5'b0, 5'b0, 5'b0, 16'b0); // Timing NOPs
-        instruction_memory[m++] = pack_instruction(`OP_NOP, 5'b0, 5'b0, 5'b0, 16'b0); // Timing NOPs
-        // PC is now 24 (m=24)
-        // Jump to multiplication program at address 100
-        // Offset calculation: Target=100, PC=24, PC+1+offset=100 → offset=100-(24+1)=75
-        instruction_memory[m++] = pack_instruction(`OP_JMP, 5'b0, 5'b0, 5'b0, 16'd75);   // JMP to address 100
+        // ------------ 10 signed 32×32→64 test cases ------------------
+        run_test_case("Test 1: 0  * 0",        32'h00000000, 32'h00000000,    // 0 * 0
+                                              32'h00000000, 32'h00000000);     // = 0
 
-        // Load the test setup instructions into CPU's instruction memory
-        for (j = 0; j < 1024; j = j + 1) begin
-            cpu.if_stage.inst_mem.memory[j] = instruction_memory[j];
-        end
-        
-        // Debug - Display first 200 instruction memory lines to verify loading
-        $display("\n===== INSTRUCTION MEMORY DUMP (First 280 lines) =====");
-        for (j = 0; j < 280; j = j + 1) begin
-            $display("Addr %03d: %08h | Opcode: %07b", j, 
-                      cpu.if_stage.inst_mem.memory[j],
-                      cpu.if_stage.inst_mem.memory[j][31:25]);
-        end
-        $display("======================================================\n");
-        
-        // Reset CPU state to start test case 1
-        rst = 1; #20; rst = 0; #1;
-        
-        // Wait for program to complete
-        wait_for_completion();
-        
-        // Check results
-        $display("Result TC1: R1(Low)=%h, R2(High)=%h", R1_debug, R2_debug);
-        if (R1_debug === 32'h0 && R2_debug === 32'h0) begin
-            $display("Test Case 1 PASSED"); tests_passed = tests_passed + 1;
-        end else begin
-            $display("Test Case 1 FAILED - Expected 0x0:0, Got %h:%h", R2_debug, R1_debug); tests_failed = tests_failed + 1;
-        end
-        #100; // Delay between tests
+        run_test_case("Test 2: 1  * 1",        32'h00000001, 32'h00000001,    // 1 * 1
+                                              32'h00000001, 32'h00000000);     // = 1
 
+        run_test_case("Test 3: -2 * -3",       32'hFFFFFFFE, 32'hFFFFFFFD,    // -2 * -3
+                                              32'h00000006, 32'h00000000);     // = 6
 
-        // --- Test Case 2: 1 * 1 = 1 ---
-        $display("\nTest Case 2: 1 * 1");
-        rst = 1; #20; rst = 0; #1;
-        m = 0;
-        instruction_memory[m++] = pack_instruction(`OP_ADI, `R1, `R0, 5'b0, 16'h0001);  // ADI R1, R0, #1
-        instruction_memory[m++] = pack_instruction(`OP_NOP, 5'b0, 5'b0, 5'b0, 16'b0); 
-        instruction_memory[m++] = pack_instruction(`OP_NOP, 5'b0, 5'b0, 5'b0, 16'b0); 
-        instruction_memory[m++] = pack_instruction(`OP_NOP, 5'b0, 5'b0, 5'b0, 16'b0); 
-        instruction_memory[m++] = pack_instruction(`OP_NOP, 5'b0, 5'b0, 5'b0, 16'b0); 
-        instruction_memory[m++] = pack_instruction(`OP_NOP, 5'b0, 5'b0, 5'b0, 16'b0);
-        instruction_memory[m++] = pack_instruction(`OP_ADI, `R2, `R0, 5'b0, 16'h0001);  // ADI R2, R0, #1
-        instruction_memory[m++] = pack_instruction(`OP_NOP, 5'b0, 5'b0, 5'b0, 16'b0); 
-        instruction_memory[m++] = pack_instruction(`OP_NOP, 5'b0, 5'b0, 5'b0, 16'b0); 
-        instruction_memory[m++] = pack_instruction(`OP_NOP, 5'b0, 5'b0, 5'b0, 16'b0); 
-        instruction_memory[m++] = pack_instruction(`OP_NOP, 5'b0, 5'b0, 5'b0, 16'b0); 
-        instruction_memory[m++] = pack_instruction(`OP_NOP, 5'b0, 5'b0, 5'b0, 16'b0);
-        instruction_memory[m++] = pack_instruction(`OP_ADI, `R3, `R0, 5'b0, 16'h0001);  // ADI R3, R0, #1 (Expected Result Low)
-        instruction_memory[m++] = pack_instruction(`OP_NOP, 5'b0, 5'b0, 5'b0, 16'b0); 
-        instruction_memory[m++] = pack_instruction(`OP_NOP, 5'b0, 5'b0, 5'b0, 16'b0); 
-        instruction_memory[m++] = pack_instruction(`OP_NOP, 5'b0, 5'b0, 5'b0, 16'b0); 
-        instruction_memory[m++] = pack_instruction(`OP_NOP, 5'b0, 5'b0, 5'b0, 16'b0); 
-        instruction_memory[m++] = pack_instruction(`OP_NOP, 5'b0, 5'b0, 5'b0, 16'b0);
-        instruction_memory[m++] = pack_instruction(`OP_ADI, `R4, `R0, 5'b0, 16'h0000);  // ADI R4, R0, #0 (Expected Result High)
-        instruction_memory[m++] = pack_instruction(`OP_NOP, 5'b0, 5'b0, 5'b0, 16'b0); 
-        instruction_memory[m++] = pack_instruction(`OP_NOP, 5'b0, 5'b0, 5'b0, 16'b0); 
-        instruction_memory[m++] = pack_instruction(`OP_NOP, 5'b0, 5'b0, 5'b0, 16'b0); 
-        instruction_memory[m++] = pack_instruction(`OP_NOP, 5'b0, 5'b0, 5'b0, 16'b0); 
-        instruction_memory[m++] = pack_instruction(`OP_NOP, 5'b0, 5'b0, 5'b0, 16'b0);
-        instruction_memory[m++] = pack_instruction(`OP_NOP, 5'b0, 5'b0, 5'b0, 16'b0); // Timing NOPs
-        // PC is now 24 (m=24)
-        // Jump to multiplication program at address 100
-        // Offset calculation: Target=100, PC=24, PC+1+offset=100 → offset=100-(24+1)=75
-        instruction_memory[m++] = pack_instruction(`OP_JMP, 5'b0, 5'b0, 5'b0, 16'd75);   // JMP to address 100
-        
-        for (j = 0; j < 1024; j = j + 1) cpu.if_stage.inst_mem.memory[j] = instruction_memory[j]; // Load instructions
-        
-        // Reset CPU state and debug state for test case 2
-        rst = 1; #20; rst = 0; #1;
-        debug_state = 0;
-        
-        // Wait for program to complete
-        wait_for_completion();
-        
-        $display("Result TC2: R1(Low)=%h, R2(High)=%h", R1_debug, R2_debug);
-        if (R1_debug === 32'h1 && R2_debug === 32'h0) begin
-            $display("Test Case 2 PASSED"); tests_passed = tests_passed + 1;
-        end else begin
-            $display("Test Case 2 FAILED - Expected 0x0:1, Got %h:%h", R2_debug, R1_debug); tests_failed = tests_failed + 1;
-        end
-        #100;
+        run_test_case("Test 4:  2 * -3",       32'h00000002, 32'hFFFFFFFD,    // 2 * -3
+                                              32'hFFFFFFFA, 32'hFFFFFFFF);     // = -6
 
-        
+        run_test_case("Test 5: -2 *  3",       32'hFFFFFFFE, 32'h00000003,    // -2 * 3
+                                              32'hFFFFFFFA, 32'hFFFFFFFF);     // = -6
 
-        // Display test summary
+        run_test_case("Test 6:  5 * 0",        32'h00000005, 32'h00000000,    // 5 * 0
+                                              32'h00000000, 32'h00000000);     // = 0
+
+        run_test_case("Test 7: -5 * 0",        32'hFFFFFFFB, 32'h00000000,    // -5 * 0
+                                              32'h00000000, 32'h00000000);     // = 0
+
+        run_test_case("Test 8: MAXPOS*MAXPOS", 32'h7FFFFFFF, 32'h7FFFFFFF,    // 2147483647 * 2147483647
+                                              32'h00000001, 32'h3FFFFFFF);     // = 4611686014132420609
+
+        run_test_case("Test 9: MAXNEG*MAXNEG", 32'h80000000, 32'h80000000,    // -2147483648 * -2147483648
+                                              32'h00000000, 32'h40000000);     // = 4611686018427387904
+
+        run_test_case("Test10: MAXPOS*MAXNEG", 32'h7FFFFFFF, 32'h80000000,    // 2147483647 * -2147483648
+                                              32'h80000000, 32'hC0000000);     // = -4611686016279904256
+
+        //------------------------------------------------------------------
         $display("\n=== Test Summary ===");
-        $display("Total Tests: %0d", total_tests);
+        $display("Total Tests : %0d", total_tests);
         $display("Tests Passed: %0d", tests_passed);
         $display("Tests Failed: %0d", tests_failed);
-        if (tests_failed == 0)
-            $display("All tests PASSED!");
-        else
-            $display("Some tests FAILED!");
-        $display("==================\n");
-
-        // End simulation
-        $display("All test cases completed");
         $finish;
     end
 
-    
+    // -----------------------------------------------------------------------------
+    // Debug FSM – prints a high-level trace of the multiplier
+    // -----------------------------------------------------------------------------
+    integer settle_cnt /* synthesis keep */;
+    integer halt_cnt;
+
     always @(posedge clk) begin
-        if (!rst) begin
-            // Debug register values at appropriate pipeline stages
-            case (debug_state)
-                // Test setup debugging states
-                0: begin
-                    if (cpu.PC >= 0) begin
-                        $display("CRITICAL: [PC=%d] Test case setup started", cpu.PC);
-                        debug_state = 1;
-                    end
-                end
-                
-                1: begin
-                    // Wait for first MOV instruction to complete (R1 load)
-                    if (cpu.PC >= 6) begin
-                        $display("CRITICAL: Test input R1=%h loaded", R1_debug);
-                        debug_state = 2;
-                    end
-                end
-                
-                2: begin
-                    // Wait for second MOV instruction to complete (R2 load)
-                    if (cpu.PC >= 12) begin
-                        $display("CRITICAL: Test input R2=%h loaded", R2_debug);
-                        debug_state = 3;
-                    end
-                end
-                
-                3: begin
-                    // Watch for jump to multiplication code
-                    if (cpu.PC >= 24) begin
-                        $display("CRITICAL: [PC=%d] Jumping to multiplication algorithm", cpu.PC);
-                        debug_state = 10;
-                    end
-                end
-                
-                10: begin
-                    // First instruction of multiplication code
-                    if (cpu.PC >= 100) begin
-                        $display("\nCRITICAL: [PC=%d] MULTIPLICATION STARTED", cpu.PC);
-                        $display("  Initial inputs: R1=%h, R2=%h", R1_debug, R2_debug);
-                        $display("  Expected for TC1 (0*0): R1=0, R2=0");
-                        $display("  Expected for TC2 (1*1): R1=1, R2=0");
-                        debug_state = 11;
-                    end
-                end
-                
-                11: begin
-                    // Wait for R1 initialization to complete
-                    if (cpu.PC >= 106) begin
-                        $display("CRITICAL: [PC=%d] R1 initialized to %h", cpu.PC, R1_debug);
-                        debug_state = 12;
-                    end 
-                end
-                
-                12: begin
-                    // Wait for R2 initialization to complete 
-                    if (cpu.PC >= 112) begin
-                        $display("CRITICAL: [PC=%d] R2 initialized to %h", cpu.PC, R2_debug);
-                        debug_state = 13;
-                    end
-                end
-                
-                13: begin
-                    // Wait for inputs to be moved to R3 and R4
-                    if (cpu.PC >= 124) begin
-                        $display("CRITICAL: Inputs moved to multiplicand/multiplier");
-                        $display("  R3 (multiplicand)=%h, R4 (multiplier)=%h", R3_debug, R4_debug);
-                        debug_state = 14;
-                    end
-                end
-                
-                14: begin
-                    // Wait for sign extraction of multiplicand
-                    if (cpu.PC >= 130) begin
-                        $display("CRITICAL: Sign extracted from multiplicand, R7=%h", R7_debug);
-                        // Check if branch taken or not
-                        repeat(3) @(posedge clk);  // Wait 3 clock cycles
-                        if (cpu.PC >= 136 && cpu.PC <= 142) 
-                            $display("CRITICAL: BZ at PC=130 NOT TAKEN (R7!=0, multiplicand is negative)");
-                        else
-                            $display("CRITICAL: BZ at PC=130 TAKEN (R7=0, multiplicand is positive)");
-                        debug_state = 15;
-                    end
-                end
-                
-                15: begin
-                    // Wait for sign extraction of multiplier
-                    if (cpu.PC >= 154) begin
-                        $display("CRITICAL: Sign extracted from multiplier, R8=%h", R8_debug);
-                        // Check if branch taken or not
-                        repeat(3) @(posedge clk);  // Wait 3 clock cycles
-                        if (cpu.PC >= 160 && cpu.PC <= 166) 
-                            $display("CRITICAL: BZ at PC=154 NOT TAKEN (R8!=0, multiplier is negative)");
-                        else
-                            $display("CRITICAL: BZ at PC=154 TAKEN (R8=0, multiplier is positive)");
-                        debug_state = 16;
-                    end
-                end
-                
-                16: begin
-                    // Wait for loop counter initialization
-                    if (cpu.PC >= 182) begin
-                        $display("CRITICAL: Loop counter initialized, R31=%d", R31_debug);
-                        debug_state = 20;
-                    end
-                end
-                
-                // ---- Multiplication loop tracking ----
-                20: begin
-                    // Beginning of multiplication loop
-                    if (cpu.PC >= 184) begin
-                        $display("\nCRITICAL: LOOP ITERATION - Counter=%d", R31_debug);
-                        $display("  LSB check: R9=%h (multiplier R4=%h)", R9_debug, R4_debug);
-                        debug_state = 21;
-                    end
-                end
-                
-                21: begin
-                    // After LSB check
-                    if (cpu.PC > 190 && cpu.PC < 196) begin
-                        // Wait 3 cycles for pipeline effect on R9
-                        repeat(3) @(posedge clk);  // Wait 3 clock cycles
-                        if (R9_debug == 0) begin
-                            $display("  LSB is 0, skipping addition");
-                            $display("  BZ at PC=190 TAKEN (R9=0, skipping addition)");
-                        end else begin
-                            $display("  LSB is 1, will add multiplicand to product");
-                            $display("  BZ at PC=190 NOT TAKEN (R9!=0, performing addition)");
-                        end
-                        debug_state = 22;
-                    end
-                end
-                
-                22: begin
-                    // After addition (if performed)
-                    if (cpu.PC >= 214) begin
-                        $display("  Current product: R2:R1 = %h:%h", R2_debug, R1_debug);
-                        debug_state = 23;
-                    end
-                end
-                
-                23: begin
-                    // After multiplier shift
-                    if (cpu.PC >= 226) begin
-                        $display("  Shifted multiplier: R4=%h", R4_debug);
-                        $display("  Shifted multiplicand: R3=%h", R3_debug);
-                        debug_state = 24;
-                    end
-                end
-                
-                24: begin
-                    // After loop branch check
-                    if (cpu.PC > 238) begin
-                        // Wait 3 cycles for pipeline effect on R31
-                        repeat(3) @(posedge clk);  // Wait 3 clock cycles
-                        // If we're still in the loop
-                        if (R31_debug > 0) begin
-                            $display("  BNZ at PC=238 TAKEN (R31=%d, looping back)", R31_debug);
-                            $display("  Loop offset = -55 (Target=184, PC=238, Offset=184-(238+1)=-55)");
-                            debug_state = 20; // Go back to loop start
-                            $display("  Loop continues, iterations left: %d", R31_debug);
-                        end else begin
-                            $display("  BNZ at PC=238 NOT TAKEN (R31=0, exiting loop)");
-                            debug_state = 30; // Move to sign adjustment
-                            $display("\nCRITICAL: MULTIPLICATION LOOP COMPLETE");
-                        end
-                    end
-                end
-                
-                // ---- Sign adjustment ----
-                30: begin
-                    // Wait for sign adjustment check
-                    if (cpu.PC >= 250) begin
-                        $display("CRITICAL: Sign check result R10=%h", R10_debug);
-                        // Wait 3 cycles for pipeline effect
-                        repeat(3) @(posedge clk);  // Wait 3 clock cycles
-                        if (R10_debug != 0) begin
-                            $display("  Signs differed, need to negate result");
-                            $display("  BZ at PC=250 NOT TAKEN (R10!=0, signs differed)");
-                        end else begin
-                            $display("  Signs matched, no negation needed");
-                            $display("  BZ at PC=250 TAKEN (R10=0, signs matched)");
-                        end
-                        debug_state = 31;
-                    end
-                end
-                
-                31: begin
-                    // Wait for end of multiplication
-                    if (cpu.PC >= 280) begin
-                        $display("\nCRITICAL: MULTIPLICATION COMPLETE");
-                        $display("  Final result: R1 (low)=%h, R2 (high)=%h", R1_debug, R2_debug);
-                        
-                        // Determine which test case is running
-                        if (cpu.if_stage.inst_mem.memory[0][31:25] == `OP_ADI && 
-                            cpu.if_stage.inst_mem.memory[6][31:25] == `OP_ADI) begin
-                            
-                            // Test case 1 (0*0)
-                            if (cpu.if_stage.inst_mem.memory[0][15:0] == 16'h0 && 
-                                cpu.if_stage.inst_mem.memory[6][15:0] == 16'h0) begin
-                                $display("  Test Case: 0 * 0");
-                                $display("  Expected: 0x00000000:00000000");
-                                if (R1_debug == 32'h0 && R2_debug == 32'h0) begin
-                                    $display("  Actual: 0x%h:%h - CORRECT", R2_debug, R1_debug);
-                                end else begin
-                                    $display("  Actual: 0x%h:%h - ERROR", R2_debug, R1_debug);
-                                end
-                            end
-                            // Test case 2 (1*1)
-                            else if (cpu.if_stage.inst_mem.memory[0][15:0] == 16'h1 && 
-                                     cpu.if_stage.inst_mem.memory[6][15:0] == 16'h1) begin
-                                $display("  Test Case: 1 * 1");
-                                $display("  Expected: 0x00000000:00000001");
-                                if (R1_debug == 32'h1 && R2_debug == 32'h0) begin
-                                    $display("  Actual: 0x%h:%h - CORRECT", R2_debug, R1_debug);
-                                end else begin
-                                    $display("  Actual: 0x%h:%h - ERROR", R2_debug, R1_debug);
-                                end
-                            end
-                        end
-                        
-                        debug_state = 0; // Reset for next test case
-                    end
-                end
-            endcase
-            
-            prev_PC = cpu.PC;
+        if (rst) begin
+            debug_state  <= 0;
+            settle_cnt   <= 0;
         end else begin
-            // Reset debug state when CPU is reset
-            debug_state = 0;
-            prev_PC = 0;
+            //----------------------------------------------------------
+            // small helper – wait N cycles for WB to update registers
+            //----------------------------------------------------------
+            if (settle_cnt != 0)
+                settle_cnt <= settle_cnt - 1;
+
+            case (debug_state)
+            // --------------------------------------------------------
+            // 0  – wait for loader to hand control to multiplier core
+            // --------------------------------------------------------
+            0 : if (cpu.PC >= PC_LOADER_DONE) begin
+                    $display("\n=== Test-vector started @%0t ns ===",$time);
+                    debug_state <= 1;
+            end
+            // --------------------------------------------------------
+            // 1  – first MOV completes (R3=mulcand) → wait 3 cycles
+            // --------------------------------------------------------
+            1 : if (cpu.PC == PC_START+4) begin  // MOV + 4 NOPs
+                    $display("SETUP: R3 (multiplicand) <= %h", R3_debug);
+                    settle_cnt  <= 3;            // pipeline latency to WB
+                    debug_state <= 2;
+            end
+            // --------------------------------------------------------
+            // 2  – second MOV completes (R4=multiplier)
+            // --------------------------------------------------------
+            2 : if (settle_cnt==0 && cpu.PC == PC_START+9) begin
+                    $display("SETUP: R4 (multiplier)   <= %h", R4_debug);
+                    debug_state <= 3;
+            end
+            // --------------------------------------------------------
+            // 3  – product registers zeroed
+            // --------------------------------------------------------
+            3 : if (cpu.PC == PC_INIT_R2+4) begin // ADI + 4 NOPs
+                    $display("INIT : R1/R2 cleared");
+                    debug_state <= 4;
+            end
+            // --------------------------------------------------------
+            // 4  – sign of A acquired
+            // --------------------------------------------------------
+            4 : if (cpu.PC == PC_ABS_A_SIGN+4) begin
+                    $display("ABS  : sign(A)=R7=%0d  value now R3=%h",R7_debug,R3_debug);
+                    debug_state <= 5;
+            end
+            // branch @130 -------------------------------------------------
+            5 : if (cpu.PC == PC_ABS_A_BZ) begin
+                    #1; // allow fetch of next instruction
+                    $display("BR   : BZ @%3d %s-TAKEN  (A %s negative)",
+                            PC_ABS_A_BZ,
+                            (cpu.PC==PC_ABS_A_BZ+1)?"":"NOT ",
+                            (cpu.PC==PC_ABS_A_BZ+1)?"is not":"is");
+                    debug_state <= 6;
+            end
+            // sign of B ---------------------------------------------------
+            6 : if (cpu.PC == PC_ABS_B_SIGN+4) begin
+                    $display("ABS  : sign(B)=R8=%0d  value now R4=%h",R8_debug,R4_debug);
+                    debug_state <= 7;
+            end
+            // branch @160 -------------------------------------------------
+            7 : if (cpu.PC == PC_ABS_B_BZ) begin
+                    #1;
+                    $display("BR   : BZ @%3d %s-TAKEN  (B %s negative)",
+                            PC_ABS_B_BZ,
+                            (cpu.PC==PC_ABS_B_BZ+1)?"":"NOT ",
+                            (cpu.PC==PC_ABS_B_BZ+1)?"is not":"is");
+                    debug_state <= 8;
+            end
+            // counter set -------------------------------------------------
+            8 : if (cpu.PC == PC_COUNTER_SET+4) begin
+                    $display("LOOP : counter R31 = %0d", R31_debug);
+                    debug_state <= 9;
+            end
+            // --------------------------------------------------------
+            // 9  – main loop (one message each iteration)
+            // --------------------------------------------------------
+            9 : if (cpu.PC == PC_LOOP_HEAD+4) begin
+                    $display("\nITER : R31=%0d  R4 LSB=%0d  R1=%h  R2=%h",
+                            R31_debug, R9_debug[0], R1_debug,R2_debug);
+                    debug_state <= 10;
+            end
+            // branch on LSB ----------------------------------------------
+            10: if (cpu.PC == PC_LSB_BZ) begin
+                    #1;
+                    $display("BR   : BZ @%3d %s-TAKEN (LSB %s)",
+                            PC_LSB_BZ,
+                            (cpu.PC==PC_LSB_BZ+1)?"":"NOT ",
+                            (cpu.PC==PC_LSB_BZ+1)?"0":"1");
+                    debug_state <= 11;
+            end
+            // loop tail reached ------------------------------------------
+            11: if (cpu.PC == PC_LOOP_TAIL+4) begin
+                    $display("TAIL : after shifts  R3=%h  R4=%h  carry=%0d",
+                            R3_debug, R4_debug, R5_debug);
+                    debug_state <= 12;
+            end
+            // back-branch / exit -----------------------------------------
+            12: if (cpu.PC == PC_LOOP_BRANCH) begin
+                    #1;
+                    if (cpu.PC==PC_LOOP_BRANCH+1) begin
+                        $display("BR   : BNZ EXIT  (R31==0)");
+                        debug_state <= 13;       // go finish
+                    end else begin
+                        $display("BR   : BNZ LOOP  (R31=%0d)",R31_debug);
+                        debug_state <= 9;        // next iteration
+                    end
+            end
+            // --------------------------------------------------------
+            // 13 – sign fix-up
+            // --------------------------------------------------------
+            13: if (cpu.PC == PC_SIGN_XOR+4) begin
+                    $display("SIGN : R7^R8 = %0d  (negate=%0d)",R10_debug,R10_debug);
+                    debug_state <= 14;
+            end
+            14: if (cpu.PC == PC_SIGN_BZ) begin
+                    #1;
+                    $display("BR   : BZ @%3d %s-TAKEN (result %s negated)",
+                            PC_SIGN_BZ,
+                            (cpu.PC==PC_SIGN_BZ+1)?"":"NOT ",
+                            (cpu.PC==PC_SIGN_BZ+1)?"NOT":"will be");
+                    debug_state <= 15;
+            end
+            // --------------------------------------------------------
+            // 15 – program halts → dump final product
+            // --------------------------------------------------------
+            15: if (cpu.PC >= PC_HALT) begin
+                    $display("DONE :  R2:R1 = %h:%h", R2_debug,R1_debug);
+                    debug_state <= 16;
+            end
+            // --------------------------------------------------------
+            // 16 – wait 5 cycles at HALT then auto-reset FSM
+            // --------------------------------------------------------
+            16: begin
+                    halt_cnt = 0;
+                    if (cpu.PC >= PC_HALT) halt_cnt = halt_cnt + 1;
+                    if (halt_cnt == 5) begin
+                        halt_cnt    = 0;
+                        debug_state = 0;
+                        $display("=== Next test-vector will start ===");
+                    end
+            end
+            endcase
         end
     end
+
 
 endmodule
